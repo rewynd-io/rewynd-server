@@ -9,7 +9,9 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.seconds
+import kotlin.time.toJavaDuration
 
 class RedisClusterJobQueue<Request, Response, ClientEventPayload, WorkerEventPayload>(
     private val id: String,
@@ -30,7 +32,15 @@ class RedisClusterJobQueue<Request, Response, ClientEventPayload, WorkerEventPay
 
     override suspend fun submit(req: Request): JobId {
         val id = JobId()
-        syncConn.lpush(listId, Json.encodeToString(RequestWrapper(serializeRequest(req), id)))
+        // TODO this is a bandaid for stream TTLs - it should really be set on every xadd
+        redis.connect().use {
+            val conn = it.coroutines()
+            conn.xadd(workerId(id), mapOf("event" to Json.encodeToString<WorkerEvent>(WorkerEvent.NoOp)))
+            conn.expire(workerId(id), 1.days.toJavaDuration())
+            conn.xadd(clientId(id), mapOf("event" to Json.encodeToString<ClientEvent>(ClientEvent.NoOp)))
+            conn.expire(clientId(id), 1.days.toJavaDuration())
+            conn.lpush(listId, Json.encodeToString(RequestWrapper(serializeRequest(req), id)))
+        }
         return id
     }
 
