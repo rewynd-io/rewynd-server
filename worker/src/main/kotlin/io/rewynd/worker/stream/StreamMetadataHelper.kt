@@ -71,7 +71,7 @@ class StreamMetadataHelper(
     }
 
     suspend fun complete() = mutex.withLock {
-        this.complete
+        this.complete = true
         put()
     }
 }
