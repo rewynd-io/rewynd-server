@@ -18,7 +18,11 @@ fun Route.progressRoutes(db: Database) {
         call.parameters["id"]?.let { mediaId ->
             call.sessions.get<UserSession>()?.username?.let { username ->
                 call.respond(
-                    db.getProgress(mediaId, username)?.progress ?: Progress(
+                    db.getProgress(mediaId, username)?.progress?.takeIf {
+                        // TODO expire progress based on timestamp
+                        // TODO make progress completion configurable
+                        it.percent < .99
+                    } ?: Progress(
                         mediaId,
                         0.0,
                         Clock.System.now().toEpochMilliseconds().toDouble()
