@@ -3,6 +3,7 @@ package io.rewynd.common.database
 import io.rewynd.common.*
 import io.rewynd.common.database.PostgresExtensions.upsert
 import io.rewynd.model.*
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.runBlocking
 import kotlinx.datetime.Instant
 import kotlinx.serialization.encodeToString
@@ -12,7 +13,7 @@ import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.less
 import org.jetbrains.exposed.sql.statements.api.ExposedBlob
-import org.jetbrains.exposed.sql.transactions.transaction
+import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
 import java.util.*
 import kotlin.math.roundToInt
 import org.jetbrains.exposed.sql.Database as ExposedDb
@@ -88,10 +89,11 @@ sealed interface Database {
 
 
     class PostgresDatabase(
-        config: io.rewynd.common.DatabaseConfig.PostgresConfig, private val conn: ExposedDb = ExposedDb.connect(config.datasource)
+        config: io.rewynd.common.DatabaseConfig.PostgresConfig,
+        private val conn: ExposedDb = ExposedDb.connect(config.datasource)
     ) : Database {
         override suspend fun init() {
-            transaction(conn) {
+            newSuspendedTransaction(currentCoroutineContext(), conn) {
                 SchemaUtils.createMissingTablesAndColumns(
                     Users,
                     Sessions,
@@ -122,58 +124,64 @@ sealed interface Database {
             }
         }
 
-        override suspend fun getUser(username: String): ServerUser? = transaction(conn) {
-            Users.select { Users.username eq username }.limit(1).firstOrNull()?.toServerUser()
-        }
+        override suspend fun getUser(username: String): ServerUser? =
+            newSuspendedTransaction(currentCoroutineContext(), conn) {
+                Users.select { Users.username eq username }.limit(1).firstOrNull()?.toServerUser()
+            }
 
 
-        override suspend fun upsertUser(user: ServerUser): Boolean = transaction(conn) {
-            Users.upsert(Users.username) {
-                it[username] = user.user.username
-                it[hashedPassword] = user.hashedPass
-                it[preferences] = Json.encodeToString(user.user.preferences)
-                it[permissions] = Json.encodeToString(user.user.permissions)
-                it[salt] = user.salt
-            }.insertedCount == 1
-        }
+        override suspend fun upsertUser(user: ServerUser): Boolean =
+            newSuspendedTransaction(currentCoroutineContext(), conn) {
+                Users.upsert(Users.username) {
+                    it[username] = user.user.username
+                    it[hashedPassword] = user.hashedPass
+                    it[preferences] = Json.encodeToString(user.user.preferences)
+                    it[permissions] = Json.encodeToString(user.user.permissions)
+                    it[salt] = user.salt
+                }.insertedCount == 1
+            }
 
-        override suspend fun deleteUser(username: String): Boolean = transaction(conn) {
-            Users.deleteWhere {
-                Users.username eq username
-            } == 1
-        }
+        override suspend fun deleteUser(username: String): Boolean =
+            newSuspendedTransaction(currentCoroutineContext(), conn) {
+                Users.deleteWhere {
+                    Users.username eq username
+                } == 1
+            }
 
-        override suspend fun listUsers(): List<ServerUser> = transaction(conn) {
+        override suspend fun listUsers(): List<ServerUser> = newSuspendedTransaction(currentCoroutineContext(), conn) {
             Users.selectAll().map {
                 it.toServerUser()
             }
         }
 
-        override suspend fun getLibrary(libraryId: String): Library? = transaction(conn) {
-            Libraries.select { Libraries.libraryId eq libraryId }.firstOrNull()?.let {
-                Library(
-                    name = it[Libraries.libraryId],
-                    type = it[Libraries.type],
-                    rootPaths = Json.decodeFromString<List<String>>(it[Libraries.rootPaths])
-                )
+        override suspend fun getLibrary(libraryId: String): Library? =
+            newSuspendedTransaction(currentCoroutineContext(), conn) {
+                Libraries.select { Libraries.libraryId eq libraryId }.firstOrNull()?.let {
+                    Library(
+                        name = it[Libraries.libraryId],
+                        type = it[Libraries.type],
+                        rootPaths = Json.decodeFromString<List<String>>(it[Libraries.rootPaths])
+                    )
+                }
             }
-        }
 
-        override suspend fun upsertLibrary(lib: Library): Boolean = transaction(conn) {
-            Libraries.upsert(Libraries.libraryId) {
-                it[libraryId] = lib.name
-                it[type] = lib.type
-                it[rootPaths] = Json.encodeToString(lib.rootPaths)
-            }.insertedCount == 1
-        }
+        override suspend fun upsertLibrary(lib: Library): Boolean =
+            newSuspendedTransaction(currentCoroutineContext(), conn) {
+                Libraries.upsert(Libraries.libraryId) {
+                    it[libraryId] = lib.name
+                    it[type] = lib.type
+                    it[rootPaths] = Json.encodeToString(lib.rootPaths)
+                }.insertedCount == 1
+            }
 
-        override suspend fun deleteLibrary(libraryId: String): Boolean = transaction(conn) {
-            Libraries.deleteWhere {
-                Libraries.libraryId eq libraryId
-            } == 1
-        }
+        override suspend fun deleteLibrary(libraryId: String): Boolean =
+            newSuspendedTransaction(currentCoroutineContext(), conn) {
+                Libraries.deleteWhere {
+                    Libraries.libraryId eq libraryId
+                } == 1
+            }
 
-        override suspend fun listLibraries(): List<Library> = transaction(conn) {
+        override suspend fun listLibraries(): List<Library> = newSuspendedTransaction(currentCoroutineContext(), conn) {
             Libraries.selectAll().map {
                 Library(
                     name = it[Libraries.libraryId],
@@ -183,129 +191,141 @@ sealed interface Database {
             }
         }
 
-        override suspend fun getShow(showId: String): ServerShowInfo? = transaction(conn) {
-            Shows.select { Shows.showId eq showId }.firstOrNull()?.toServerShowInfo()
-        }
+        override suspend fun getShow(showId: String): ServerShowInfo? =
+            newSuspendedTransaction(currentCoroutineContext(), conn) {
+                Shows.select { Shows.showId eq showId }.firstOrNull()?.toServerShowInfo()
+            }
 
-        override suspend fun upsertShow(show: ServerShowInfo): Boolean = transaction(conn) {
-            Shows.upsert(Shows.showId) {
-                it[showId] = show.showInfo.id
-                it[libraryId] = show.showInfo.libraryId
-                it[title] = show.showInfo.title
-                it[plot] = show.showInfo.plot
-                it[outline] = show.showInfo.outline
-                it[originalTitle] = show.showInfo.originalTitle
-                it[premiered] = show.showInfo.premiered
-                it[releaseDate] = show.showInfo.releaseDate
-                it[endDate] = show.showInfo.endDate
-                it[mpaa] = show.showInfo.mpaa
-                it[imdbId] = show.showInfo.imdbId
-                it[tmdbId] = show.showInfo.tmdbId
-                it[tvdbId] = show.showInfo.tvdbId
-                it[tvRageId] = show.showInfo.tvRageId
-                it[rating] = show.showInfo.rating
-                it[year] = show.showInfo.year?.roundToInt()
-                it[runTime] = show.showInfo.runTime
-                it[episode] = show.showInfo.episode?.roundToInt()
-                it[episodeNumberEnd] = show.showInfo.episodeNumberEnd?.roundToInt()
-                it[season] = show.showInfo.season?.roundToInt()
-                it[aired] = show.showInfo.aired
-                it[genre] = show.showInfo.genre
-                it[studio] = show.showInfo.studio
-                it[status] = show.showInfo.status
-                it[tag] = show.showInfo.tag?.let(Json.Default::encodeToString)
-                it[actors] = show.showInfo.actors?.let(Json.Default::encodeToString)
-                it[seriesImageId] = show.showInfo.seriesImageId
-                it[backdropImageId] = show.showInfo.backdropImageId
-                it[lastUpdated] = show.libraryData.lastUpdated.toEpochMilliseconds()
-            }.insertedCount == 1
-        }
+        override suspend fun upsertShow(show: ServerShowInfo): Boolean =
+            newSuspendedTransaction(currentCoroutineContext(), conn) {
+                Shows.upsert(Shows.showId) {
+                    it[showId] = show.showInfo.id
+                    it[libraryId] = show.showInfo.libraryId
+                    it[title] = show.showInfo.title
+                    it[plot] = show.showInfo.plot
+                    it[outline] = show.showInfo.outline
+                    it[originalTitle] = show.showInfo.originalTitle
+                    it[premiered] = show.showInfo.premiered
+                    it[releaseDate] = show.showInfo.releaseDate
+                    it[endDate] = show.showInfo.endDate
+                    it[mpaa] = show.showInfo.mpaa
+                    it[imdbId] = show.showInfo.imdbId
+                    it[tmdbId] = show.showInfo.tmdbId
+                    it[tvdbId] = show.showInfo.tvdbId
+                    it[tvRageId] = show.showInfo.tvRageId
+                    it[rating] = show.showInfo.rating
+                    it[year] = show.showInfo.year?.roundToInt()
+                    it[runTime] = show.showInfo.runTime
+                    it[episode] = show.showInfo.episode?.roundToInt()
+                    it[episodeNumberEnd] = show.showInfo.episodeNumberEnd?.roundToInt()
+                    it[season] = show.showInfo.season?.roundToInt()
+                    it[aired] = show.showInfo.aired
+                    it[genre] = show.showInfo.genre
+                    it[studio] = show.showInfo.studio
+                    it[status] = show.showInfo.status
+                    it[tag] = show.showInfo.tag?.let(Json.Default::encodeToString)
+                    it[actors] = show.showInfo.actors?.let(Json.Default::encodeToString)
+                    it[seriesImageId] = show.showInfo.seriesImageId
+                    it[backdropImageId] = show.showInfo.backdropImageId
+                    it[lastUpdated] = show.libraryData.lastUpdated.toEpochMilliseconds()
+                }.insertedCount == 1
+            }
 
-        override suspend fun deleteShow(showId: String): Boolean = transaction(conn) {
-            Shows.deleteWhere { Shows.showId eq showId } == 1
-        }
+        override suspend fun deleteShow(showId: String): Boolean =
+            newSuspendedTransaction(currentCoroutineContext(), conn) {
+                Shows.deleteWhere { Shows.showId eq showId } == 1
+            }
 
-        override suspend fun listShows(libraryId: String): List<ServerShowInfo> = transaction(conn) {
-            Shows.selectAll().map { it.toServerShowInfo() }
-        }
+        override suspend fun listShows(libraryId: String): List<ServerShowInfo> =
+            newSuspendedTransaction(currentCoroutineContext(), conn) {
+                Shows.selectAll().map { it.toServerShowInfo() }
+            }
 
-        override suspend fun getSeason(seasonId: String): ServerSeasonInfo? = transaction(conn) {
-            Seasons.select {
-                Seasons.seasonId eq seasonId
-            }.firstOrNull()?.toServerSeasonInfo()
-        }
+        override suspend fun getSeason(seasonId: String): ServerSeasonInfo? =
+            newSuspendedTransaction(currentCoroutineContext(), conn) {
+                Seasons.select {
+                    Seasons.seasonId eq seasonId
+                }.firstOrNull()?.toServerSeasonInfo()
+            }
 
-        override suspend fun upsertSeason(season: ServerSeasonInfo): Boolean = transaction(conn) {
-            Seasons.upsert(Seasons.seasonId) {
-                it[seasonId] = season.seasonInfo.id
-                it[showId] = season.seasonInfo.showId
-                it[seasonNumber] = season.seasonInfo.seasonNumber.roundToInt()
-                it[libraryId] = season.libraryData.libraryId
-                it[showName] = season.seasonInfo.showName ?: "" // TODO should not be nullable in spec
-                it[year] = season.seasonInfo.year?.roundToInt()
-                it[premiered] = season.seasonInfo.premiered
-                it[releaseDate] = season.seasonInfo.releaseDate
-                it[folderImageId] = season.seasonInfo.folderImageId
-                it[actors] = season.seasonInfo.actors?.let(Json.Default::encodeToString)
-                it[libraryId] = season.libraryData.libraryId
-                it[lastUpdated] = season.libraryData.lastUpdated.toEpochMilliseconds()
-            }.insertedCount == 1
-        }
+        override suspend fun upsertSeason(season: ServerSeasonInfo): Boolean =
+            newSuspendedTransaction(currentCoroutineContext(), conn) {
+                Seasons.upsert(Seasons.seasonId) {
+                    it[seasonId] = season.seasonInfo.id
+                    it[showId] = season.seasonInfo.showId
+                    it[seasonNumber] = season.seasonInfo.seasonNumber.roundToInt()
+                    it[libraryId] = season.libraryData.libraryId
+                    it[showName] = season.seasonInfo.showName ?: "" // TODO should not be nullable in spec
+                    it[year] = season.seasonInfo.year?.roundToInt()
+                    it[premiered] = season.seasonInfo.premiered
+                    it[releaseDate] = season.seasonInfo.releaseDate
+                    it[folderImageId] = season.seasonInfo.folderImageId
+                    it[actors] = season.seasonInfo.actors?.let(Json.Default::encodeToString)
+                    it[libraryId] = season.libraryData.libraryId
+                    it[lastUpdated] = season.libraryData.lastUpdated.toEpochMilliseconds()
+                }.insertedCount == 1
+            }
 
-        override suspend fun deleteSeason(seasonId: String): Boolean = transaction(conn) {
-            Seasons.deleteWhere { Seasons.seasonId eq seasonId } == 1
-        }
+        override suspend fun deleteSeason(seasonId: String): Boolean =
+            newSuspendedTransaction(currentCoroutineContext(), conn) {
+                Seasons.deleteWhere { Seasons.seasonId eq seasonId } == 1
+            }
 
-        override suspend fun listSeasons(showId: String): List<ServerSeasonInfo> = transaction(conn) {
-            Seasons.select { Seasons.showId eq showId }.map { it.toServerSeasonInfo() }
-        }
+        override suspend fun listSeasons(showId: String): List<ServerSeasonInfo> =
+            newSuspendedTransaction(currentCoroutineContext(), conn) {
+                Seasons.select { Seasons.showId eq showId }.map { it.toServerSeasonInfo() }
+            }
 
-        override suspend fun getEpisode(episodeId: String): ServerEpisodeInfo? = transaction(conn) {
-            Episodes.select { Episodes.episodeId eq episodeId }.firstOrNull()?.toServerEpisodeInfo()
-        }
+        override suspend fun getEpisode(episodeId: String): ServerEpisodeInfo? =
+            newSuspendedTransaction(currentCoroutineContext(), conn) {
+                Episodes.select { Episodes.episodeId eq episodeId }.firstOrNull()?.toServerEpisodeInfo()
+            }
 
-        override suspend fun upsertEpisode(episode: ServerEpisodeInfo): Boolean = transaction(conn) {
-            Episodes.upsert(Episodes.episodeId) {
-                it[showId] = episode.episodeInfo.showId
-                it[showName] = episode.episodeInfo.showName ?: "" // TODO should not be nullable in spec
-                it[seasonId] = episode.episodeInfo.seasonId
-                it[season] = episode.episodeInfo.season?.roundToInt() ?: 0 // TODO should not be nullable in spec
-                it[episodeId] = episode.episodeInfo.id
-                it[location] = episode.mediaInfo.fileInfo.location.let(Json.Default::encodeToString)
-                it[size] = episode.mediaInfo.fileInfo.size
-                it[lastUpdated] = episode.mediaInfo.libraryData.lastUpdated.toEpochMilliseconds()
-                it[libraryId] = episode.mediaInfo.libraryData.libraryId
-                it[audioTracks] = episode.mediaInfo.audioTracks.let(Json.Default::encodeToString)
-                it[videoTracks] = episode.mediaInfo.videoTracks.let(Json.Default::encodeToString)
-                it[subtitleTracks] = episode.mediaInfo.subtitleTracks.let(Json.Default::encodeToString)
-                it[subtitleFiles] = episode.mediaInfo.subtitleFiles.let(Json.Default::encodeToString)
-                it[title] = episode.episodeInfo.title
-                it[runTime] = episode.episodeInfo.runTime
-                it[plot] = episode.episodeInfo.plot
-                it[outline] = episode.episodeInfo.outline
-                it[directors] = episode.episodeInfo.director?.let(Json.Default::encodeToString)
-                it[writers] = episode.episodeInfo.writer?.let(Json.Default::encodeToString)
-                it[credits] = episode.episodeInfo.credits?.let(Json.Default::encodeToString)
-                it[rating] = episode.episodeInfo.rating
-                it[year] = episode.episodeInfo.year?.roundToInt()
-                it[Episodes.episode] =
-                    episode.episodeInfo.episode?.roundToInt() ?: 0 // TODO should not be nullable in spec
-                it[episodeNumberEnd] = episode.episodeInfo.episodeNumberEnd?.roundToInt()
-                it[season] = episode.episodeInfo.season?.roundToInt() ?: 0 // TODO should not be nullable in spec
-                it[aired] = episode.episodeInfo.aired
-                it[episodeImageId] = episode.episodeInfo.episodeImageId
-            }.insertedCount == 1
-        }
+        override suspend fun upsertEpisode(episode: ServerEpisodeInfo): Boolean =
+            newSuspendedTransaction(currentCoroutineContext(), conn) {
+                Episodes.upsert(Episodes.episodeId) {
+                    it[showId] = episode.episodeInfo.showId
+                    it[showName] = episode.episodeInfo.showName ?: "" // TODO should not be nullable in spec
+                    it[seasonId] = episode.episodeInfo.seasonId
+                    it[season] = episode.episodeInfo.season?.roundToInt() ?: 0 // TODO should not be nullable in spec
+                    it[episodeId] = episode.episodeInfo.id
+                    it[location] = episode.mediaInfo.fileInfo.location.let(Json.Default::encodeToString)
+                    it[size] = episode.mediaInfo.fileInfo.size
+                    it[lastUpdated] = episode.mediaInfo.libraryData.lastUpdated.toEpochMilliseconds()
+                    it[libraryId] = episode.mediaInfo.libraryData.libraryId
+                    it[audioTracks] = episode.mediaInfo.audioTracks.let(Json.Default::encodeToString)
+                    it[videoTracks] = episode.mediaInfo.videoTracks.let(Json.Default::encodeToString)
+                    it[subtitleTracks] = episode.mediaInfo.subtitleTracks.let(Json.Default::encodeToString)
+                    it[subtitleFiles] = episode.mediaInfo.subtitleFiles.let(Json.Default::encodeToString)
+                    it[title] = episode.episodeInfo.title
+                    it[runTime] = episode.episodeInfo.runTime
+                    it[plot] = episode.episodeInfo.plot
+                    it[outline] = episode.episodeInfo.outline
+                    it[directors] = episode.episodeInfo.director?.let(Json.Default::encodeToString)
+                    it[writers] = episode.episodeInfo.writer?.let(Json.Default::encodeToString)
+                    it[credits] = episode.episodeInfo.credits?.let(Json.Default::encodeToString)
+                    it[rating] = episode.episodeInfo.rating
+                    it[year] = episode.episodeInfo.year?.roundToInt()
+                    it[Episodes.episode] =
+                        episode.episodeInfo.episode?.roundToInt() ?: 0 // TODO should not be nullable in spec
+                    it[episodeNumberEnd] = episode.episodeInfo.episodeNumberEnd?.roundToInt()
+                    it[season] = episode.episodeInfo.season?.roundToInt() ?: 0 // TODO should not be nullable in spec
+                    it[aired] = episode.episodeInfo.aired
+                    it[episodeImageId] = episode.episodeInfo.episodeImageId
+                }.insertedCount == 1
+            }
 
-        override suspend fun deleteEpisode(episodeId: String): Boolean = transaction(conn) {
-            Episodes.deleteWhere {
-                Episodes.episodeId eq episodeId
-            } == 1
-        }
+        override suspend fun deleteEpisode(episodeId: String): Boolean =
+            newSuspendedTransaction(currentCoroutineContext(), conn) {
+                Episodes.deleteWhere {
+                    Episodes.episodeId eq episodeId
+                } == 1
+            }
 
-        override suspend fun listEpisodes(seasonId: String): List<ServerEpisodeInfo> = transaction(conn) {
-            Episodes.select { Episodes.seasonId eq seasonId }.map { it.toServerEpisodeInfo() }
-        }
+        override suspend fun listEpisodes(seasonId: String): List<ServerEpisodeInfo> =
+            newSuspendedTransaction(currentCoroutineContext(), conn) {
+                Episodes.select { Episodes.seasonId eq seasonId }.map { it.toServerEpisodeInfo() }
+            }
 
         override suspend fun getMovie(movieId: String): ServerMovieInfo? {
             TODO("Not yet implemented")
@@ -323,23 +343,25 @@ sealed interface Database {
             TODO("Not yet implemented")
         }
 
-        override suspend fun getImage(imageId: String): ServerImageInfo? = transaction(conn) {
-            Images.select {
-                Images.imageId eq imageId
-            }.firstOrNull()?.toServerImageInfo()
-        }
+        override suspend fun getImage(imageId: String): ServerImageInfo? =
+            newSuspendedTransaction(currentCoroutineContext(), conn) {
+                Images.select {
+                    Images.imageId eq imageId
+                }.firstOrNull()?.toServerImageInfo()
+            }
 
 
-        override suspend fun upsertImage(imageInfo: ServerImageInfo): Boolean = transaction(conn) {
-            Images.upsert(Images.imageId) {
-                it[imageId] = imageInfo.imageId
-                it[size] = imageInfo.fileInfo.size
-                it[lastUpdated] = imageInfo.libraryData.lastUpdated.toEpochMilliseconds()
-                it[libraryId] = imageInfo.libraryData.libraryId
-                it[location] = imageInfo.fileInfo.location.let(Json.Default::encodeToString)
-            }.insertedCount == 1
+        override suspend fun upsertImage(imageInfo: ServerImageInfo): Boolean =
+            newSuspendedTransaction(currentCoroutineContext(), conn) {
+                Images.upsert(Images.imageId) {
+                    it[imageId] = imageInfo.imageId
+                    it[size] = imageInfo.fileInfo.size
+                    it[lastUpdated] = imageInfo.libraryData.lastUpdated.toEpochMilliseconds()
+                    it[libraryId] = imageInfo.libraryData.libraryId
+                    it[location] = imageInfo.fileInfo.location.let(Json.Default::encodeToString)
+                }.insertedCount == 1
 
-        }
+            }
 
         override suspend fun deleteImage(movieId: String): Boolean {
             TODO("Not yet implemented")
@@ -352,48 +374,55 @@ sealed interface Database {
 
         override suspend fun mkSessionStorage(): SessionStorage {
             return object : SessionStorage {
-                override suspend fun invalidate(id: String) = transaction(conn) {
+                override suspend fun invalidate(id: String) = newSuspendedTransaction(currentCoroutineContext(), conn) {
                     Sessions.deleteWhere {
                         sessionId eq id
                     }
                     Unit
                 }
 
-                override suspend fun write(id: String, value: String) = transaction(conn) {
-                    Sessions.upsert(Sessions.sessionId) {
-                        it[sessionId] = id
-                        it[Sessions.value] = value
+                override suspend fun write(id: String, value: String) =
+                    newSuspendedTransaction(currentCoroutineContext(), conn) {
+                        Sessions.upsert(Sessions.sessionId) {
+                            it[sessionId] = id
+                            it[Sessions.value] = value
+                        }
+                        Unit
                     }
-                    Unit
-                }
 
-                override suspend fun read(id: String): String = transaction(conn) {
-                    Sessions.select {
-                        Sessions.sessionId eq id
-                    }.firstOrNull()?.getOrNull(Sessions.value) ?: throw NoSuchElementException("Session $id not found")
-                }
+                override suspend fun read(id: String): String =
+                    newSuspendedTransaction(currentCoroutineContext(), conn) {
+                        Sessions.select {
+                            Sessions.sessionId eq id
+                        }.firstOrNull()?.getOrNull(Sessions.value)
+                            ?: throw NoSuchElementException("Session $id not found")
+                    }
 
             }
         }
 
-        override suspend fun cleanShows(start: Instant, libraryId: String) = transaction(conn) {
-            Shows.deleteWhere { lastUpdated less start.toEpochMilliseconds() and (Shows.libraryId eq libraryId) }
-        }
+        override suspend fun cleanShows(start: Instant, libraryId: String) =
+            newSuspendedTransaction(currentCoroutineContext(), conn) {
+                Shows.deleteWhere { lastUpdated less start.toEpochMilliseconds() and (Shows.libraryId eq libraryId) }
+            }
 
-        override suspend fun cleanSeasons(start: Instant, libraryId: String) = transaction(conn) {
-            Seasons.deleteWhere { lastUpdated less start.toEpochMilliseconds() and (Seasons.libraryId eq libraryId) }
-        }
+        override suspend fun cleanSeasons(start: Instant, libraryId: String) =
+            newSuspendedTransaction(currentCoroutineContext(), conn) {
+                Seasons.deleteWhere { lastUpdated less start.toEpochMilliseconds() and (Seasons.libraryId eq libraryId) }
+            }
 
-        override suspend fun cleanEpisodes(start: Instant, libraryId: String) = transaction(conn) {
-            Episodes.deleteWhere { lastUpdated less start.toEpochMilliseconds() and (Episodes.libraryId eq libraryId) }
-        }
+        override suspend fun cleanEpisodes(start: Instant, libraryId: String) =
+            newSuspendedTransaction(currentCoroutineContext(), conn) {
+                Episodes.deleteWhere { lastUpdated less start.toEpochMilliseconds() and (Episodes.libraryId eq libraryId) }
+            }
 
-        override suspend fun cleanImages(start: Instant, libraryId: String) = transaction(conn) {
-            Images.deleteWhere { lastUpdated less start.toEpochMilliseconds() and (Images.libraryId eq libraryId) }
-        }
+        override suspend fun cleanImages(start: Instant, libraryId: String) =
+            newSuspendedTransaction(currentCoroutineContext(), conn) {
+                Images.deleteWhere { lastUpdated less start.toEpochMilliseconds() and (Images.libraryId eq libraryId) }
+            }
 
         override suspend fun getLibraryIndex(libraryId: String, updatedAfter: Instant?): LibraryIndex? =
-            transaction(conn) {
+            newSuspendedTransaction(currentCoroutineContext(), conn) {
                 LibraryIndicies.select {
                     if (updatedAfter != null) {
                         LibraryIndicies.libraryId eq libraryId and (LibraryIndicies.lastUpdated greater updatedAfter.toEpochMilliseconds())
@@ -403,42 +432,47 @@ sealed interface Database {
                 }.firstOrNull()
             }?.toLibraryIndex()
 
-        override suspend fun upsertLibraryIndex(index: LibraryIndex): Boolean = transaction(conn) {
-            LibraryIndicies.upsert(LibraryIndicies.libraryId) {
-                it[libraryId] = index.libraryId
-                it[lastUpdated] = index.lastUpdated.toEpochMilliseconds()
-                it[LibraryIndicies.index] = ExposedBlob(index.index)
-            }
-        }.insertedCount == 1
+        override suspend fun upsertLibraryIndex(index: LibraryIndex): Boolean =
+            newSuspendedTransaction(currentCoroutineContext(), conn) {
+                LibraryIndicies.upsert(LibraryIndicies.libraryId) {
+                    it[libraryId] = index.libraryId
+                    it[lastUpdated] = index.lastUpdated.toEpochMilliseconds()
+                    it[LibraryIndicies.index] = ExposedBlob(index.index)
+                }
+            }.insertedCount == 1
 
-        override suspend fun deleteLibraryIndex(libraryId: String): Boolean = transaction(conn) {
-            LibraryIndicies.deleteWhere { LibraryIndicies.libraryId eq libraryId }
-        } == 1
+        override suspend fun deleteLibraryIndex(libraryId: String): Boolean =
+            newSuspendedTransaction(currentCoroutineContext(), conn) {
+                LibraryIndicies.deleteWhere { LibraryIndicies.libraryId eq libraryId }
+            } == 1
 
         override suspend fun listLibraryIndexes(): List<LibraryIndex> {
             TODO("Not yet implemented")
         }
 
-        override suspend fun getProgress(id: String, username: String): UserProgress? = transaction(conn) {
-            Progression.select {
-                Progression.mediaId eq id
-            }.firstOrNull()?.toProgress()
-        }
+        override suspend fun getProgress(id: String, username: String): UserProgress? =
+            newSuspendedTransaction(currentCoroutineContext(), conn) {
+                Progression.select {
+                    Progression.mediaId eq id
+                }.firstOrNull()?.toProgress()
+            }
 
-        override suspend fun upsertProgress(progress: UserProgress): Boolean = transaction(conn) {
-            Progression.upsert(Progression.mediaId) {
-                it[mediaId] = progress.progress.id
-                it[timestamp] = progress.progress.timestamp.toLong()
-                it[username] = progress.username
-                it[percent] = progress.progress.percent
-            }.insertedCount == 1
-        }
+        override suspend fun upsertProgress(progress: UserProgress): Boolean =
+            newSuspendedTransaction(currentCoroutineContext(), conn) {
+                Progression.upsert(Progression.mediaId) {
+                    it[mediaId] = progress.progress.id
+                    it[timestamp] = progress.progress.timestamp.toLong()
+                    it[username] = progress.username
+                    it[percent] = progress.progress.percent
+                }.insertedCount == 1
+            }
 
-        override suspend fun deleteProgress(id: String, username: String): Boolean = transaction(conn) {
-            Progression.deleteWhere {
-                mediaId eq id
-            } == 1
-        }
+        override suspend fun deleteProgress(id: String, username: String): Boolean =
+            newSuspendedTransaction(currentCoroutineContext(), conn) {
+                Progression.deleteWhere {
+                    mediaId eq id
+                } == 1
+            }
 
         override suspend fun listProgress(
             username: String,
@@ -446,7 +480,7 @@ sealed interface Database {
             limit: Int,
             minPercent: Double,
             maxPercent: Double
-        ): List<UserProgress> = transaction(conn) {
+        ): List<UserProgress> = newSuspendedTransaction(currentCoroutineContext(), conn) {
             Progression.select {
                 Progression.percent.lessEq(maxPercent) and Progression.percent.greaterEq(minPercent)
             }.limit(limit).apply {
