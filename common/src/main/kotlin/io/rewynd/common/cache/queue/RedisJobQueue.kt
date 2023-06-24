@@ -4,7 +4,9 @@ import arrow.core.Either
 import arrow.core.left
 import arrow.core.right
 import io.lettuce.core.RedisClient
+import io.lettuce.core.ScriptOutputType
 import io.lettuce.core.api.coroutines
+import io.lettuce.core.api.coroutines.RedisCoroutinesCommands
 import io.rewynd.common.KLog
 import io.rewynd.common.redis.blpopFlow
 import io.rewynd.common.redis.xreadFlow
@@ -13,7 +15,6 @@ import kotlinx.coroutines.flow.*
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlin.time.Duration.Companion.days
-import kotlin.time.toJavaDuration
 
 class RedisJobQueue<Request, Response, ClientEventPayload, WorkerEventPayload>(
     private val id: String,
@@ -34,15 +35,7 @@ class RedisJobQueue<Request, Response, ClientEventPayload, WorkerEventPayload>(
 
     override suspend fun submit(req: Request): JobId {
         val id = JobId()
-        // TODO this is a bandaid for stream TTLs - it should really be set on every xadd
-        redis.connect().use {
-            val conn = it.coroutines()
-            conn.xadd(workerId(id), mapOf("event" to Json.encodeToString<WorkerEvent>(WorkerEvent.NoOp)))
-            conn.expire(workerId(id), 1.days.toJavaDuration())
-            conn.xadd(clientId(id), mapOf("event" to Json.encodeToString<ClientEvent>(ClientEvent.NoOp)))
-            conn.expire(clientId(id), 1.days.toJavaDuration())
-            conn.lpush(listId, Json.encodeToString(RequestWrapper(serializeRequest(req), id)))
-        }
+        conn.lpush(listId, Json.encodeToString(RequestWrapper(serializeRequest(req), id)))
         return id
     }
 
@@ -51,92 +44,31 @@ class RedisJobQueue<Request, Response, ClientEventPayload, WorkerEventPayload>(
         scope: CoroutineScope
     ): Job =
         scope.launch(Dispatchers.IO) {
-            redis.connect().use { queueConn ->
-                redis.connect()
-                    .use { clientEventConn -> // TODO try to reuse this connection instead of spawning a new one
-                        queueConn.coroutines().blpopFlow(listId).filterNotNull().collect { job ->
-
+            redis.coUse { queueConn ->
+                redis.coUse { clientEventConn -> // TODO try to reuse this connection instead of spawning a new one
+                        queueConn.blpopFlow(listId).filterNotNull().collect { job ->
                             try {
                                 var clientEventJob: Job? = null
                                 val reqWrapper = Json.decodeFromString<RequestWrapper>(job.value)
-
-                                RedisClusterJobQueue.log.info { "Got job $job" }
-
+                                log.info { "Got job $job" }
                                 val clientEventPayloads = MutableSharedFlow<ClientEventPayload>()
+                                val res: Deferred<Either<Exception, Response>> =
+                                    executeHandler(handler, reqWrapper, clientEventPayloads)
 
-                                val res: Deferred<Either<Exception, Response>> = async(Dispatchers.IO) {
-                                    log.info { "Started Handler job" }
-                                    try {
-                                        handler(
-                                            JobContext(
-                                                deserializeRequest(reqWrapper.request), clientEventPayloads, {
-                                                    conn.xadd(
-                                                        workerId(reqWrapper.id), mapOf(
-                                                            "event" to Json.encodeToString<WorkerEvent>(
-                                                                WorkerEvent.Event(
-                                                                    serializeWorkerEventPayload(
-                                                                        it
-                                                                    )
-                                                                )
-                                                            )
-                                                        )
-                                                    )
-                                                }, reqWrapper.id
-                                            )
-                                        ).right()
-                                    } catch (e: Exception) {
-                                        e.left()
-                                    }
-                                }
+                                clientEventJob = startClientEventJob(
+                                    clientEventConn,
+                                    reqWrapper,
+                                    res,
+                                    clientEventPayloads
+                                )
 
-                                clientEventJob = launch(Dispatchers.IO) {
-                                    try {
-                                        log.info { "Started ClientEvent job" }
-                                        clientEventConn.coroutines().xreadFlow(clientId(reqWrapper.id)).flatMapConcat {
-                                            it.values.asFlow()
-                                                .map { event -> Json.decodeFromString<ClientEvent>(event) }
-                                        }.transformWhile {
-                                            emit(it)
-                                            currentCoroutineContext().isActive && it !is ClientEvent.Cancel
-                                        }.collect {
-                                            log.info { "Received event $it" }
-                                            when (it) {
-                                                is ClientEvent.Cancel -> {
-                                                    RedisClusterJobQueue.log.info { "Received cancel event for ${reqWrapper.id}" }
-                                                    if (!res.isCancelled) {
-                                                        res.cancel()
-                                                    }
-                                                    RedisClusterJobQueue.log.info { "Canceled ${reqWrapper.id}" }
-                                                }
-
-                                                is ClientEvent.NoOp -> {}
-                                                is ClientEvent.Event -> clientEventPayloads.emit(
-                                                    deserializeClientEventPayload(
-                                                        it.payload
-                                                    )
-                                                )
-                                            }
-                                        }
-                                    } catch (e: Exception) {
-                                        log.error(e) { "ClientEvent job failed" }
-                                    }
-                                }
                                 try {
-
-                                    RedisClusterJobQueue.log.info { "Waiting for handler" }
+                                    log.info { "Waiting for handler" }
                                     val result = res.await()
                                     result.fold({ throw it }) {
-                                        RedisClusterJobQueue.log.info { "Handler completed, emitting success" }
-                                        conn.xadd(
-                                            workerId(reqWrapper.id), mapOf(
-                                                "success" to Json.encodeToString<WorkerEvent>(
-                                                    WorkerEvent.Success(
-                                                        serializeResponse(it)
-                                                    )
-                                                )
-                                            )
-                                        )
-                                        RedisClusterJobQueue.log.info { "Emitted success" }
+                                        log.info { "Handler completed, emitting success" }
+                                        emitWorkerSuccess(reqWrapper, it)
+                                        log.info { "Emitted success" }
                                     }
                                 } catch (e: Exception) {
 
@@ -144,31 +76,158 @@ class RedisJobQueue<Request, Response, ClientEventPayload, WorkerEventPayload>(
                                     // Exception could be due to cancellation, which apparently means suspend functions may not work
                                     res.cancel()
                                     log.info { "Emitting Fail event" }
-                                    conn.xadd(
-                                        workerId(reqWrapper.id),
-                                        mapOf(
-                                            "fail" to Json.encodeToString<WorkerEvent>(
-                                                WorkerEvent.Fail(e.localizedMessage)
-                                            )
-                                        )
-                                    )
-                                    RedisClusterJobQueue.log.info { "Emitted Fail event" }
+                                    emitWorkerFailure(reqWrapper, e)
+                                    log.info { "Emitted Fail event" }
                                 } finally {
                                     clientEventJob.cancel()
                                 }
-                                RedisClusterJobQueue.log.info { "Completed job $job" }
+
+                                log.info { "Completed job $job" }
                             } catch (e: Exception) {
-                                log.warn(e) { }
+                                log.warn(e) { "Exception handling job $job" }
                             }
                         }
                     }
             }
         }
 
+    private fun CoroutineScope.executeHandler(
+        handler: JobHandler<Request, Response, ClientEventPayload, WorkerEventPayload>,
+        reqWrapper: RequestWrapper,
+        clientEventPayloads: MutableSharedFlow<ClientEventPayload>
+    ) = async(Dispatchers.IO) {
+        log.info { "Started Handler job" }
+        try {
+            handler(
+                JobContext(
+                    deserializeRequest(reqWrapper.request), clientEventPayloads, {
+                        emitWorkerEvent(reqWrapper, it)
+                    }, reqWrapper.id
+                )
+            ).right()
+        } catch (e: Exception) {
+            e.left()
+        }
+    }
+
+    private fun CoroutineScope.startClientEventJob(
+        clientEventConn: RedisCoroutinesCommands<String, String>,
+        reqWrapper: RequestWrapper,
+        res: Deferred<Either<Exception, Response>>,
+        clientEventPayloads: MutableSharedFlow<ClientEventPayload>
+    ) = launch(Dispatchers.IO) {
+        try {
+            log.info { "Started ClientEvent job" }
+            clientEventConn.xreadFlow(clientId(reqWrapper.id)).flatMapConcat {
+                it.values.asFlow()
+                    .map { event -> Json.decodeFromString<ClientEvent>(event) }
+            }.transformWhile {
+                emit(it)
+                currentCoroutineContext().isActive && it !is ClientEvent.Cancel
+            }.collect {
+                log.info { "Received event $it" }
+                handleClientEvent(it, reqWrapper, res, clientEventPayloads)
+            }
+        } catch (e: Exception) {
+            log.error(e) { "ClientEvent job failed" }
+        }
+    }
+
+    private suspend fun handleClientEvent(
+        it: ClientEvent,
+        reqWrapper: RequestWrapper,
+        res: Deferred<Either<Exception, Response>>,
+        clientEventPayloads: MutableSharedFlow<ClientEventPayload>
+    ) {
+        when (it) {
+            is ClientEvent.Cancel -> {
+                log.info { "Received cancel event for ${reqWrapper.id}" }
+                if (!res.isCancelled) {
+                    res.cancel()
+                }
+                log.info { "Canceled ${reqWrapper.id}" }
+            }
+
+            is ClientEvent.NoOp -> {}
+            is ClientEvent.Event -> clientEventPayloads.emit(
+                deserializeClientEventPayload(
+                    it.payload
+                )
+            )
+        }
+    }
+
+    private suspend fun emitWorkerFailure(
+        reqWrapper: RequestWrapper,
+        e: Exception
+    ) {
+        conn.eval<Int>(
+            """
+            redis.call("xadd", KEYS[1], '*', ARGV[1], ARGV[2])
+            return redis.call("expire", KEYS[1], ARGV[3])
+        """.trimIndent(),
+            ScriptOutputType.INTEGER,
+            arrayOf(workerId(reqWrapper.id)),
+            "fail",
+            Json.encodeToString<WorkerEvent>(
+                WorkerEvent.Fail(
+                    e.localizedMessage
+                )
+            ),
+            1.days.inWholeSeconds.toString()
+        )
+    }
+
+    private suspend fun emitWorkerSuccess(
+        reqWrapper: RequestWrapper,
+        it: Response
+    ) {
+        conn.eval<Int>(
+            """
+            redis.call("xadd", KEYS[1], '*', ARGV[1], ARGV[2])
+            return redis.call("expire", KEYS[1], ARGV[3])
+        """.trimIndent(),
+            ScriptOutputType.INTEGER,
+            arrayOf(workerId(reqWrapper.id)),
+            "success",
+            Json.encodeToString<WorkerEvent>(
+                WorkerEvent.Success(
+                    serializeResponse(
+                        it
+                    )
+                )
+            ),
+            1.days.inWholeSeconds.toString()
+        )
+    }
+
+    private suspend fun emitWorkerEvent(
+        reqWrapper: RequestWrapper,
+        it: WorkerEventPayload
+    ) {
+        conn.eval<Int>(
+            """
+            redis.call("xadd", KEYS[1], '*', ARGV[1], ARGV[2])
+            return redis.call("expire", KEYS[1], ARGV[3])
+        """.trimIndent(),
+            ScriptOutputType.INTEGER,
+            arrayOf(workerId(reqWrapper.id)),
+            "event",
+            Json.encodeToString<WorkerEvent>(
+                WorkerEvent.Event(
+                    serializeWorkerEventPayload(
+                        it
+                    )
+                )
+            ),
+            1.days.inWholeSeconds.toString()
+        )
+    }
+
     override suspend fun monitor(jobId: JobId): Flow<WorkerEvent> {
         val client = redis.connect()
-        val conn = client.coroutines()
-        return conn.xreadFlow(workerId(jobId)).flatMapConcat {
+        val monitorConn = client.coroutines()
+        return monitorConn.xreadFlow(workerId(jobId)).flatMapConcat {
             it.values.asFlow().map { event -> Json.decodeFromString<WorkerEvent>(event) }
         }.transformWhile {
             emit(it)
@@ -177,7 +236,17 @@ class RedisJobQueue<Request, Response, ClientEventPayload, WorkerEventPayload>(
     }
 
     override suspend fun cancel(jobId: JobId) {
-        conn.xadd(clientId(jobId), mapOf("cancel" to Json.encodeToString<ClientEvent>(ClientEvent.Cancel)))
+        conn.eval<Int>(
+            """
+            redis.call("xadd", KEYS[1], '*', ARGV[1], ARGV[2])
+            return redis.call("expire", KEYS[1], ARGV[3])
+        """.trimIndent(),
+            ScriptOutputType.INTEGER,
+            arrayOf(clientId(jobId)),
+            "cancel",
+            Json.encodeToString<ClientEvent>(ClientEvent.Cancel),
+            1.days.inWholeSeconds.toString()
+        )
     }
 
     override suspend fun delete(jobId: JobId) {
@@ -190,11 +259,28 @@ class RedisJobQueue<Request, Response, ClientEventPayload, WorkerEventPayload>(
     }
 
     override suspend fun notify(jobId: JobId, event: ClientEventPayload) {
-        conn.xadd(
-            clientId(jobId),
-            mapOf("event" to Json.encodeToString<ClientEvent>(ClientEvent.Event(serializeClientEventPayload(event))))
+        conn.eval<Int>(
+            """
+            redis.call("xadd", KEYS[1], '*', ARGV[1], ARGV[2])
+            return redis.call("expire", KEYS[1], ARGV[3])
+        """.trimIndent(),
+            ScriptOutputType.INTEGER,
+            arrayOf(clientId(jobId)),
+            "event",
+            Json.encodeToString<ClientEvent>(ClientEvent.Event(serializeClientEventPayload(event))),
+            1.days.inWholeSeconds.toString()
         )
     }
 
     companion object : KLog()
+}
+
+
+suspend fun <T> RedisClient.coUse(
+    f: suspend (RedisCoroutinesCommands<String, String>) -> T
+) {
+    this.connect().use {
+        val conn = it.coroutines()
+        f(conn)
+    }
 }
