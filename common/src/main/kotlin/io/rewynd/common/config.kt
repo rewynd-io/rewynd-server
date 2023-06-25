@@ -5,6 +5,7 @@ import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import io.lettuce.core.RedisURI
 import javax.sql.DataSource
+import kotlin.time.Duration.Companion.minutes
 
 
 sealed interface DatabaseConfig {
@@ -31,6 +32,8 @@ sealed interface DatabaseConfig {
                 config.jdbcUrl = url
                 config.username = username
                 config.password = password
+                config.keepaliveTime = 5.minutes.inWholeMilliseconds
+                config.leakDetectionThreshold = 5.minutes.inWholeMilliseconds
                 return HikariDataSource(config)
             }
 
