@@ -4,6 +4,9 @@ import io.rewynd.common.*
 import io.rewynd.common.database.PostgresExtensions.upsert
 import io.rewynd.model.*
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.datetime.Instant
 import kotlinx.serialization.encodeToString
@@ -79,10 +82,9 @@ sealed interface Database {
     suspend fun upsertProgress(progress: UserProgress): Boolean
     suspend fun deleteProgress(id: String, username: String): Boolean
 
-    suspend fun listProgress(
+    suspend fun listRecentProgress(
         username: String,
-        sortOrder: ProgressSort,
-        limit: Int,
+        cursor: Progress? = null,
         minPercent: Double = 0.0,
         maxPercent: Double = 1.0
     ): List<UserProgress>
@@ -474,24 +476,24 @@ sealed interface Database {
                 } == 1
             }
 
-        override suspend fun listProgress(
+        override suspend fun listRecentProgress(
             username: String,
-            sortOrder: ProgressSort,
-            limit: Int,
+            cursor: Progress?,
             minPercent: Double,
             maxPercent: Double
         ): List<UserProgress> = newSuspendedTransaction(currentCoroutineContext(), conn) {
             Progression.select {
-                Progression.percent.lessEq(maxPercent) and Progression.percent.greaterEq(minPercent)
-            }.limit(limit).apply {
-                when (sortOrder) {
-                    ProgressSort.Latest -> {
-                        orderBy(Progression.timestamp, SortOrder.ASC)
-                    }
+                (Progression.percent.lessEq(maxPercent) and Progression.percent.greaterEq(minPercent)).let {
+                    if (cursor != null) {
+                        it and (Progression.timestamp.less(cursor.timestamp.toLong()) or (Progression.timestamp.eq(
+                            cursor.timestamp.toLong()
+                        ) and Progression.mediaId.less(cursor.id)))
+                    } else it
                 }
-            }.map {
-                it.toProgress()
-            }
+            }.orderBy(Progression.timestamp to SortOrder.ASC, Progression.mediaId to SortOrder.ASC)
+                .asFlow()
+                .map { it.toProgress() }
+                .toList()
         }
     }
 

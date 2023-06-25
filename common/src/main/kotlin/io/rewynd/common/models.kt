@@ -15,6 +15,7 @@ import kotlin.time.Duration
 
 typealias SerializableInstant = @Serializable(InstantComponentSerializer::class) Instant
 
+data class WithCursor<T>(val content: T, val cursor: String? = null)
 
 @Serializable
 data class SearchProps(val text: String)

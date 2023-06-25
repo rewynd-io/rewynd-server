@@ -1,5 +1,6 @@
 val kotlin_version: String by project
 val kotlinx_serialization_version: String by project
+val kotlinx_coroutines_version: String by project
 val logback_version: String by project
 val lettuce_version: String by project
 val exposed_version: String by project
@@ -35,4 +36,5 @@ dependencies {
 
     implementation("com.typesafe:config:1.4.2")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:$kotlinx_serialization_version")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor:$kotlinx_coroutines_version")
 }
