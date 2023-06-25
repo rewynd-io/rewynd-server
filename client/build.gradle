@@ -4,7 +4,7 @@ plugins {
 }
 
 apply plugin: 'kotlin'
-var vertx_version = "4.3.3"
+
 dependencies {
 
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$project.kotlin_version"
@@ -26,7 +26,7 @@ openApiGenerate {
     apiPackage = "io.rewynd.client"
     modelPackage = "io.rewynd.model"
     configOptions = [
-library: "multiplatform"
+        library: "multiplatform"
     ]
 }
 
