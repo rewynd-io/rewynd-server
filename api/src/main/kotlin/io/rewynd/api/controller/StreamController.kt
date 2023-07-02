@@ -58,7 +58,6 @@ fun Route.streamRoutes(db: Database, cache: Cache, queue: StreamJobQueue) {
                         #EXT-X-PLAYLIST-TYPE:EVENT
                         #EXT-X-TARGETDURATION:${it.segments.maxBy { segment -> segment.duration }.duration.inWholeSeconds}
                         #EXT-X-MEDIA-SEQUENCE:0
-                        #EXT-X-START:TIME-OFFSET=0
                         #EXT-X-MAP:URI="init-stream.mp4"
                         
                     """.trimIndent()
