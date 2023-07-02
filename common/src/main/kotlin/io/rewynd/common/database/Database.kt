@@ -286,34 +286,34 @@ sealed interface Database {
         override suspend fun upsertEpisode(episode: ServerEpisodeInfo): Boolean =
             newSuspendedTransaction(currentCoroutineContext(), conn) {
                 Episodes.upsert(Episodes.episodeId) {
-                    it[showId] = episode.episodeInfo.showId
-                    it[showName] = episode.episodeInfo.showName ?: "" // TODO should not be nullable in spec
-                    it[seasonId] = episode.episodeInfo.seasonId
-                    it[season] = episode.episodeInfo.season?.roundToInt() ?: 0 // TODO should not be nullable in spec
-                    it[episodeId] = episode.episodeInfo.id
-                    it[location] = episode.mediaInfo.fileInfo.location.let(Json.Default::encodeToString)
-                    it[size] = episode.mediaInfo.fileInfo.size
-                    it[lastUpdated] = episode.mediaInfo.libraryData.lastUpdated.toEpochMilliseconds()
-                    it[libraryId] = episode.mediaInfo.libraryData.libraryId
-                    it[audioTracks] = episode.mediaInfo.audioTracks.let(Json.Default::encodeToString)
-                    it[videoTracks] = episode.mediaInfo.videoTracks.let(Json.Default::encodeToString)
-                    it[subtitleTracks] = episode.mediaInfo.subtitleTracks.let(Json.Default::encodeToString)
-                    it[subtitleFiles] = episode.mediaInfo.subtitleFiles.let(Json.Default::encodeToString)
-                    it[title] = episode.episodeInfo.title
-                    it[runTime] = episode.episodeInfo.runTime
-                    it[plot] = episode.episodeInfo.plot
-                    it[outline] = episode.episodeInfo.outline
-                    it[directors] = episode.episodeInfo.director?.let(Json.Default::encodeToString)
-                    it[writers] = episode.episodeInfo.writer?.let(Json.Default::encodeToString)
-                    it[credits] = episode.episodeInfo.credits?.let(Json.Default::encodeToString)
-                    it[rating] = episode.episodeInfo.rating
-                    it[year] = episode.episodeInfo.year?.roundToInt()
+                    it[showId] = episode.showId
+                    it[showName] = episode.showName ?: "" // TODO should not be nullable in spec
+                    it[seasonId] = episode.seasonId
+                    it[season] = episode.season?.roundToInt() ?: 0 // TODO should not be nullable in spec
+                    it[episodeId] = episode.id
+                    it[location] = episode.fileInfo.location.let(Json.Default::encodeToString)
+                    it[size] = episode.fileInfo.size
+                    it[lastUpdated] = episode.lastUpdated.toEpochMilliseconds()
+                    it[libraryId] = episode.libraryId
+                    it[audioTracks] = episode.audioTracks.let(Json.Default::encodeToString)
+                    it[videoTracks] = episode.videoTracks.let(Json.Default::encodeToString)
+                    it[subtitleTracks] = episode.subtitleTracks.let(Json.Default::encodeToString)
+                    it[subtitleFiles] = episode.subtitleFileTracks.let(Json.Default::encodeToString)
+                    it[title] = episode.title
+                    it[runTime] = episode.runTime
+                    it[plot] = episode.plot
+                    it[outline] = episode.outline
+                    it[directors] = episode.director?.let(Json.Default::encodeToString)
+                    it[writers] = episode.writer?.let(Json.Default::encodeToString)
+                    it[credits] = episode.credits?.let(Json.Default::encodeToString)
+                    it[rating] = episode.rating
+                    it[year] = episode.year?.roundToInt()
                     it[Episodes.episode] =
-                        episode.episodeInfo.episode?.roundToInt() ?: 0 // TODO should not be nullable in spec
-                    it[episodeNumberEnd] = episode.episodeInfo.episodeNumberEnd?.roundToInt()
-                    it[season] = episode.episodeInfo.season?.roundToInt() ?: 0 // TODO should not be nullable in spec
-                    it[aired] = episode.episodeInfo.aired
-                    it[episodeImageId] = episode.episodeInfo.episodeImageId
+                        episode.episode?.roundToInt() ?: 0 // TODO should not be nullable in spec
+                    it[episodeNumberEnd] = episode.episodeNumberEnd?.roundToInt()
+                    it[season] = episode.season?.roundToInt() ?: 0 // TODO should not be nullable in spec
+                    it[aired] = episode.aired
+                    it[episodeImageId] = episode.episodeImageId
                 }.insertedCount == 1
             }
 
@@ -692,70 +692,40 @@ sealed interface Database {
         )
 
         private fun ResultRow.toServerEpisodeInfo(): ServerEpisodeInfo = ServerEpisodeInfo(
-            episodeInfo = EpisodeInfo(
-                id = this[Episodes.episodeId],
-                libraryId = this[Episodes.libraryId],
-                audioTracks = this[Episodes.audioTracks].let {
-                    Json.decodeFromString<Map<String, ServerAudioTrack>>(it).toAudioTracks()
-                },
-                videoTracks = this[Episodes.videoTracks].let {
-                    Json.decodeFromString<Map<String, ServerVideoTrack>>(it).toVideoTracks()
-                },
-                subtitleTracks = this[Episodes.subtitleTracks].let {
-                    Json.decodeFromString<Map<String, ServerSubtitleTrack>>(it).toSubtitleTracks()
-                },
-                showId = this[Episodes.showId],
-                seasonId = this[Episodes.seasonId],
-                title = this[Episodes.title],
-                runTime = this[Episodes.runTime],
-                plot = this[Episodes.plot],
-                outline = this[Episodes.outline],
-                director = this[Episodes.directors]?.let(Json.Default::decodeFromString),
-                writer = this[Episodes.writers]?.let(Json.Default::decodeFromString),
-                credits = this[Episodes.credits]?.let(Json.Default::decodeFromString),
-                rating = this[Episodes.rating],
-                year = this[Episodes.year]?.toDouble(),
-                episode = this[Episodes.episode].toDouble(),
-                episodeNumberEnd = this[Episodes.episodeNumberEnd]?.toDouble(),
-                season = this[Episodes.season].toDouble(),
-                showName = this[Episodes.showName],
-                aired = this[Episodes.aired]?.toDouble(),
-                episodeImageId = this[Episodes.episodeImageId],
-            ), mediaInfo = ServerMediaInfo(
-                mediaInfo = MediaInfo(
-                    id = this[Episodes.episodeId],
-                    libraryId = this[Episodes.libraryId],
-                    audioTracks = this[Episodes.audioTracks].let {
-                        Json.decodeFromString<Map<String, ServerAudioTrack>>(it).toAudioTracks()
-                    },
-                    videoTracks = this[Episodes.videoTracks].let {
-                        Json.decodeFromString<Map<String, ServerVideoTrack>>(it).toVideoTracks()
-                    },
-                    subtitleTracks = this[Episodes.subtitleTracks].let {
-                        Json.decodeFromString<Map<String, ServerSubtitleTrack>>(it).toSubtitleTracks()
-                    },
-                    runTime = this[Episodes.runTime]
-                ),
-                libraryData = LibraryData(
-                    libraryId = this[Episodes.libraryId],
-                    lastUpdated = Instant.fromEpochMilliseconds(this[Episodes.lastUpdated]),
-                ),
-                fileInfo = FileInfo(
-                    location = this[Episodes.location].let(Json.Default::decodeFromString), size = this[Episodes.size]
-                ),
-                subtitleFiles = this[Episodes.subtitleFiles].let(Json.Default::decodeFromString),
-                audioTracks = this[Episodes.audioTracks].let {
-                    Json.decodeFromString<Map<String, ServerAudioTrack>>(it)
-                },
-                videoTracks = this[Episodes.videoTracks].let {
-                    Json.decodeFromString<Map<String, ServerVideoTrack>>(it)
-                },
-                subtitleTracks = this[Episodes.subtitleTracks].let {
-                    Json.decodeFromString<Map<String, ServerSubtitleTrack>>(it)
-                },
-            )
+            id = this[Episodes.episodeId],
+            libraryId = this[Episodes.libraryId],
+            showId = this[Episodes.showId],
+            seasonId = this[Episodes.seasonId],
+            title = this[Episodes.title],
+            runTime = this[Episodes.runTime],
+            plot = this[Episodes.plot],
+            outline = this[Episodes.outline],
+            director = this[Episodes.directors]?.let(Json.Default::decodeFromString),
+            writer = this[Episodes.writers]?.let(Json.Default::decodeFromString),
+            credits = this[Episodes.credits]?.let(Json.Default::decodeFromString),
+            rating = this[Episodes.rating],
+            year = this[Episodes.year]?.toDouble(),
+            episode = this[Episodes.episode].toDouble(),
+            episodeNumberEnd = this[Episodes.episodeNumberEnd]?.toDouble(),
+            season = this[Episodes.season].toDouble(),
+            showName = this[Episodes.showName],
+            aired = this[Episodes.aired]?.toDouble(),
+            episodeImageId = this[Episodes.episodeImageId],
+            lastUpdated = Instant.fromEpochMilliseconds(this[Episodes.lastUpdated]),
+            fileInfo = FileInfo(
+                location = this[Episodes.location].let(Json.Default::decodeFromString), size = this[Episodes.size]
+            ),
+            subtitleFileTracks = this[Episodes.subtitleFiles].let(Json.Default::decodeFromString),
+            audioTracks = this[Episodes.audioTracks].let {
+                Json.decodeFromString<Map<String, ServerAudioTrack>>(it)
+            },
+            videoTracks = this[Episodes.videoTracks].let {
+                Json.decodeFromString<Map<String, ServerVideoTrack>>(it)
+            },
+            subtitleTracks = this[Episodes.subtitleTracks].let {
+                Json.decodeFromString<Map<String, ServerSubtitleTrack>>(it)
+            },
         )
-
     }
 }
 

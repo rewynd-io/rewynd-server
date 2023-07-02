@@ -8,9 +8,9 @@ import com.fasterxml.jackson.dataformat.xml.XmlMapper
 import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlElementWrapper
 import com.fasterxml.jackson.module.kotlin.KotlinModule
 import com.fasterxml.jackson.module.kotlin.readValue
-import io.rewynd.model.*
 import io.rewynd.common.*
 import io.rewynd.common.database.Database
+import io.rewynd.model.*
 import io.rewynd.worker.ffprobe.FfprobeResult
 import io.rewynd.worker.serialize
 import kotlinx.coroutines.Dispatchers
@@ -236,12 +236,14 @@ class ShowScanner(private val lib: Library, private val db: Database) : Scanner 
         val subtitleFiles = episodeFile.parentFile.walk().maxDepth(1).filter {
             it.name.startsWith(episodeFile.nameWithoutExtension) && subtitleExtensions.contains(it.extension)
         }.associate { it.nameWithoutExtension to FileLocation.LocalFile(it.absolutePath) }
-        val subtitleFileTracks = subtitleFiles.mapValues {
-            FfprobeResult.parseFile(Path(it.value.path).toFile()).extractInfo().subtitleTracks.values.firstOrNull()
+        val subtitleFileTracks = subtitleFiles.mapValues { entry ->
+            FfprobeResult.parseFile(Path(entry.value.path).toFile()).extractInfo().subtitleTracks.values.firstOrNull()?.let {
+                SubtitleFileTrack(entry.value, it)
+            }
         }.mapNotNull { it.value }
         val episodeImageFile = episodeFile.findEpisodeImage()
         val ffprobe = curr?.let {
-            if (episodeFile.lastModified() < it.mediaInfo.libraryData.lastUpdated.toEpochMilliseconds()) {
+            if (episodeFile.lastModified() < it.lastUpdated.toEpochMilliseconds()) {
                 it.toFfprobeInfo()
             } else {
                 null
@@ -257,50 +259,34 @@ class ShowScanner(private val lib: Library, private val db: Database) : Scanner 
                 images = setOfNotNull(episodeImageFile),
                 episodes = setOf(
                     ServerEpisodeInfo(
-                        EpisodeInfo(
-                            id = episodeId,
-                            libraryId = this.lib.name,
-                            audioTracks = ffprobe.audioTracks.toAudioTracks(),
-                            videoTracks = ffprobe.videoTracks.toVideoTracks(),
-                            subtitleTracks = ffprobe.subtitleTracks.toSubtitleTracks() + subtitleFileTracks.toSubtitleTracks(),
-                            showId = showInfo.showInfo.id,
-                            seasonId = seasonInfo.seasonInfo.id,
-                            title = nfo?.title ?: episodeFile.nameWithoutExtension,
-                            runTime = ffprobe.runTime,
-                            plot = nfo?.plot,
-                            outline = nfo?.outline,
-                            director = nfo?.director,
-                            writer = nfo?.writer,
-                            credits = nfo?.credits,
-                            rating = nfo?.rating,
-                            year = nfo?.year?.toDouble(),
-                            episode = nfo?.episode?.toDouble(),
-                            episodeNumberEnd = nfo?.episodenumberend?.toDouble(),
-                            season = seasonInfo.seasonInfo.seasonNumber,
-                            showName = showInfo.showInfo.title,
-                            aired = null, //TODO nfo?.aired is and should be a string, not a double
-                            episodeImageId = episodeImageFile?.imageId
-                        ), ServerMediaInfo(
-                            mediaInfo = MediaInfo(
-                                id = episodeId,
-                                libraryId = lib.name,
-                                audioTracks = ffprobe.audioTracks.toAudioTracks(),
-                                videoTracks = ffprobe.videoTracks.toVideoTracks(),
-                                subtitleTracks = ffprobe.subtitleTracks.toSubtitleTracks() + subtitleFileTracks.toSubtitleTracks(),
-                                runTime = 0.0,
-                            ),
-                            libraryData = LibraryData(
-                                libraryId = lib.name,
-                            ),
-                            fileInfo = FileInfo(
-                                location = FileLocation.LocalFile(episodeFile.absolutePath),
-                                size = Files.size(episodeFile.toPath()),
-                            ),
-                            subtitleFiles = subtitleFiles,
-                            videoTracks = ffprobe.videoTracks,
-                            audioTracks = ffprobe.audioTracks,
-                            subtitleTracks = ffprobe.subtitleTracks + subtitleFileTracks,
-                        )
+                        id = episodeId,
+                        libraryId = this.lib.name,
+                        audioTracks = ffprobe.audioTracks,
+                        videoTracks = ffprobe.videoTracks,
+                        subtitleTracks = ffprobe.subtitleTracks,
+                        showId = showInfo.showInfo.id,
+                        seasonId = seasonInfo.seasonInfo.id,
+                        title = nfo?.title ?: episodeFile.nameWithoutExtension,
+                        runTime = ffprobe.runTime,
+                        plot = nfo?.plot,
+                        outline = nfo?.outline,
+                        director = nfo?.director,
+                        writer = nfo?.writer,
+                        credits = nfo?.credits,
+                        rating = nfo?.rating,
+                        year = nfo?.year?.toDouble(),
+                        episode = nfo?.episode?.toDouble(),
+                        episodeNumberEnd = nfo?.episodenumberend?.toDouble(),
+                        season = seasonInfo.seasonInfo.seasonNumber,
+                        showName = showInfo.showInfo.title,
+                        aired = null, //TODO nfo?.aired is and should be a string, not a double
+                        episodeImageId = episodeImageFile?.imageId,
+                        fileInfo = FileInfo(
+                            location = FileLocation.LocalFile(episodeFile.absolutePath),
+                            size = Files.size(episodeFile.toPath()),
+                        ),
+                        subtitleFileTracks = subtitleFileTracks,
+                        lastUpdated = Clock.System.now(),
                     )
                 )
             )
@@ -443,10 +429,10 @@ class ShowScanner(private val lib: Library, private val db: Database) : Scanner 
 private fun String.parseSeasonNumber(): Int? = split(" ").lastOrNull()?.toIntOrNull()
 
 private fun ServerEpisodeInfo.toFfprobeInfo(): FfprobeInfo = FfprobeInfo(
-    this.mediaInfo.audioTracks,
-    this.mediaInfo.videoTracks,
-    this.mediaInfo.subtitleTracks,
-    this.episodeInfo.runTime
+    this.audioTracks,
+    this.videoTracks,
+    this.subtitleTracks,
+    this.runTime
 )
 
 data class FfprobeInfo(
@@ -649,10 +635,10 @@ private fun ServerSeasonInfo.toDocument() = Document().apply {
 private fun SeasonInfo.formatTitle() = "${showName} - Season ${seasonNumber.roundToInt()}"
 
 private fun ServerEpisodeInfo.toDocument() = Document().apply {
-    identity(this@toDocument.episodeInfo.id)
-    add(StringField("title", this@toDocument.episodeInfo.formatTitle(), Field.Store.YES))
-    add(StoredField("id", this@toDocument.episodeInfo.id))
-    add(StoredField("description", this@toDocument.episodeInfo.plot ?: this@toDocument.episodeInfo.outline ?: ""))
+    identity(this@toDocument.id)
+    add(StringField("title", this@toDocument.formatTitle(), Field.Store.YES))
+    add(StoredField("id", this@toDocument.id))
+    add(StoredField("description", this@toDocument.plot ?: this@toDocument.outline ?: ""))
     add(StoredField("type", SearchResultType.episode.name))
 }
 
@@ -664,7 +650,7 @@ private fun ServerShowInfo.toDocument() = Document().apply {
     add(StoredField("type", SearchResultType.show.name))
 }
 
-private fun EpisodeInfo.formatTitle() =
+private fun ServerEpisodeInfo.formatTitle() =
     "$showName - S${"%02d".format(season?.roundToInt() ?: 0)}E${"%02d".format(episode?.roundToInt() ?: 0)}${
         episodeNumberEnd?.let {
             "-%02d".format(it.roundToInt())

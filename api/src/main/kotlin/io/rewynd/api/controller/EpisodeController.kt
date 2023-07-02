@@ -12,11 +12,11 @@ import java.util.*
 fun Route.episodeRoutes(db: Database) {
     get("/episode/list/{seasonId}") {
         call.parameters["seasonId"]?.let { seasonId ->
-            call.respond(db.listEpisodes(seasonId).map { it.episodeInfo })
+            call.respond(db.listEpisodes(seasonId).map { it.toEpisodeInfo() })
         } ?: call.respond(HttpStatusCode.BadRequest)
     }
     get("/episode/get/{episodeId}") {
-        val episode = call.parameters["episodeId"]?.let { db.getEpisode(it) }?.episodeInfo
+        val episode = call.parameters["episodeId"]?.let { db.getEpisode(it) }?.toEpisodeInfo()
         if (episode == null) {
             call.respond(HttpStatusCode.NotFound)
         } else {
@@ -28,7 +28,7 @@ fun Route.episodeRoutes(db: Database) {
     get("/episode/next/{episodeId}") {
         call.parameters["episodeId"]?.let { db.getEpisode(it) }?.let { serverEpisodeInfo ->
             (getNextEpisodeInSeason(db, serverEpisodeInfo) ?: getFirstEpisodeInNextSeason(db, serverEpisodeInfo))?.let {
-                call.respond(it.episodeInfo)
+                call.respond(it.toEpisodeInfo())
             }
         } ?: call.respond(HttpStatusCode.NotFound)
     }
@@ -39,7 +39,7 @@ fun Route.episodeRoutes(db: Database) {
                 serverEpisodeInfo,
                 true
             ))?.let {
-                call.respond(it.episodeInfo)
+                call.respond(it.toEpisodeInfo())
             }
         } ?: call.respond(HttpStatusCode.NotFound)
     }
@@ -50,12 +50,12 @@ private suspend fun getFirstEpisodeInNextSeason(
     serverEpisodeInfo: ServerEpisodeInfo,
     reverse: Boolean = false
 ): ServerEpisodeInfo? =
-    db.listSeasons(serverEpisodeInfo.episodeInfo.showId)
+    db.listSeasons(serverEpisodeInfo.showId)
         .sortedBy { it.seasonInfo.seasonNumber }
         .let { seasons ->
             seasons.getOrNull(
                 seasons.indexOfFirst {
-                    it.seasonInfo.seasonNumber == serverEpisodeInfo.episodeInfo.season
+                    it.seasonInfo.seasonNumber == serverEpisodeInfo.season
                 } + (if (reverse) -1 else 1)
             )
         }?.let { season -> db.listEpisodes(season.seasonInfo.id) }?.sort()
@@ -66,16 +66,16 @@ private suspend fun getNextEpisodeInSeason(
     db: Database,
     serverEpisodeInfo: ServerEpisodeInfo,
     reverse: Boolean = false
-) = db.listEpisodes(serverEpisodeInfo.episodeInfo.seasonId).sort().let { seasonEpisodes ->
+) = db.listEpisodes(serverEpisodeInfo.seasonId).sort().let { seasonEpisodes ->
     seasonEpisodes.getOrNull(
         seasonEpisodes.indexOfFirst {
-            it.episodeInfo.id == serverEpisodeInfo.episodeInfo.id
+            it.id == serverEpisodeInfo.id
         } + (if (reverse) -1 else 1)
     )
 }
 
-fun List<ServerEpisodeInfo>.sort() = if (this.all { it.episodeInfo.episode != null }) {
-    this.sortedBy { it.episodeInfo.episode }
+fun List<ServerEpisodeInfo>.sort() = if (this.all { it.episode != null }) {
+    this.sortedBy { it.episode }
 } else {
     // TODO take Locale as an argument
     this.sortedWith(Collator.getInstance(Locale.US).apply { strength = Collator.PRIMARY })

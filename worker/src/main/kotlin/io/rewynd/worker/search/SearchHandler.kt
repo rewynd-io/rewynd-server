@@ -1,12 +1,15 @@
 package io.rewynd.worker.search
 
 import arrow.core.identity
-import io.rewynd.model.*
 import io.rewynd.common.SearchJobHandler
 import io.rewynd.common.ServerEpisodeInfo
 import io.rewynd.common.ServerSeasonInfo
 import io.rewynd.common.ServerShowInfo
 import io.rewynd.common.database.Database
+import io.rewynd.model.SearchResponse
+import io.rewynd.model.SearchResult
+import io.rewynd.model.SearchResultType
+import io.rewynd.model.SeasonInfo
 import io.rewynd.worker.deserializeDirectory
 import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.flow.flatMapMerge
@@ -106,10 +109,10 @@ private fun ServerSeasonInfo.toDocument() = Document().apply {
 private fun SeasonInfo.formatTitle() = "${showName} - Season ${seasonNumber.roundToInt()}"
 
 private fun ServerEpisodeInfo.toDocument() = Document().apply {
-    identity(this@toDocument.episodeInfo.id)
-    add(StringField("title", this@toDocument.episodeInfo.formatTitle(), Field.Store.YES))
-    add(StoredField("id", this@toDocument.episodeInfo.id))
-    add(StoredField("description", this@toDocument.episodeInfo.plot ?: this@toDocument.episodeInfo.outline ?: ""))
+    identity(this@toDocument.id)
+    add(StringField("title", this@toDocument.formatTitle(), Field.Store.YES))
+    add(StoredField("id", this@toDocument.id))
+    add(StoredField("description", this@toDocument.plot ?: this@toDocument.outline ?: ""))
     add(StoredField("type", SearchResultType.episode.name))
 }
 
@@ -121,7 +124,7 @@ private fun ServerShowInfo.toDocument() = Document().apply {
     add(StoredField("type", SearchResultType.show.name))
 }
 
-private fun EpisodeInfo.formatTitle() =
+private fun ServerEpisodeInfo.formatTitle() =
     "$showName - S${"%02d".format(season?.roundToInt() ?: 0)}E${"%02d".format(episode?.roundToInt() ?: 0)}${
         episodeNumberEnd?.let {
             "-%02d".format(it.roundToInt())

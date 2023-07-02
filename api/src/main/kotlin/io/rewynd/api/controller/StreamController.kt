@@ -1,10 +1,6 @@
 package io.rewynd.api.controller
 
 import arrow.fx.coroutines.parMapUnordered
-import io.rewynd.model.CreateStreamRequest
-import io.rewynd.model.HlsStreamProps
-import io.rewynd.model.LibraryType
-import io.rewynd.model.StreamStatus
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.request.*
@@ -12,10 +8,14 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.sessions.*
 import io.rewynd.api.UserSession
+import io.rewynd.common.*
 import io.rewynd.common.cache.Cache
 import io.rewynd.common.cache.withLock
-import io.rewynd.common.*
 import io.rewynd.common.database.Database
+import io.rewynd.model.CreateStreamRequest
+import io.rewynd.model.HlsStreamProps
+import io.rewynd.model.LibraryType
+import io.rewynd.model.StreamStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.flow.flowOn
@@ -142,7 +142,7 @@ fun Route.streamRoutes(db: Database, cache: Cache, queue: StreamJobQueue) {
             db.getLibrary(req.library)?.let { library ->
                 call.sessionId<UserSession>()?.let { sessionId ->
                     when (library.type) {
-                        LibraryType.show -> db.getEpisode(req.id)?.mediaInfo
+                        LibraryType.show -> db.getEpisode(req.id)?.toServerMediaInfo()
                         LibraryType.movie -> TODO()
                         LibraryType.image -> TODO()
                     }?.let { serverMediaInfo ->
