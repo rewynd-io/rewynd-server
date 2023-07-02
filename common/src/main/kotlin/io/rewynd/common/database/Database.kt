@@ -201,35 +201,35 @@ sealed interface Database {
         override suspend fun upsertShow(show: ServerShowInfo): Boolean =
             newSuspendedTransaction(currentCoroutineContext(), conn) {
                 Shows.upsert(Shows.showId) {
-                    it[showId] = show.showInfo.id
-                    it[libraryId] = show.showInfo.libraryId
-                    it[title] = show.showInfo.title
-                    it[plot] = show.showInfo.plot
-                    it[outline] = show.showInfo.outline
-                    it[originalTitle] = show.showInfo.originalTitle
-                    it[premiered] = show.showInfo.premiered
-                    it[releaseDate] = show.showInfo.releaseDate
-                    it[endDate] = show.showInfo.endDate
-                    it[mpaa] = show.showInfo.mpaa
-                    it[imdbId] = show.showInfo.imdbId
-                    it[tmdbId] = show.showInfo.tmdbId
-                    it[tvdbId] = show.showInfo.tvdbId
-                    it[tvRageId] = show.showInfo.tvRageId
-                    it[rating] = show.showInfo.rating
-                    it[year] = show.showInfo.year?.roundToInt()
-                    it[runTime] = show.showInfo.runTime
-                    it[episode] = show.showInfo.episode?.roundToInt()
-                    it[episodeNumberEnd] = show.showInfo.episodeNumberEnd?.roundToInt()
-                    it[season] = show.showInfo.season?.roundToInt()
-                    it[aired] = show.showInfo.aired
-                    it[genre] = show.showInfo.genre
-                    it[studio] = show.showInfo.studio
-                    it[status] = show.showInfo.status
-                    it[tag] = show.showInfo.tag?.let(Json.Default::encodeToString)
-                    it[actors] = show.showInfo.actors?.let(Json.Default::encodeToString)
-                    it[seriesImageId] = show.showInfo.seriesImageId
-                    it[backdropImageId] = show.showInfo.backdropImageId
-                    it[lastUpdated] = show.libraryData.lastUpdated.toEpochMilliseconds()
+                    it[showId] = show.id
+                    it[libraryId] = show.libraryId
+                    it[title] = show.title
+                    it[plot] = show.plot
+                    it[outline] = show.outline
+                    it[originalTitle] = show.originalTitle
+                    it[premiered] = show.premiered
+                    it[releaseDate] = show.releaseDate
+                    it[endDate] = show.endDate
+                    it[mpaa] = show.mpaa
+                    it[imdbId] = show.imdbId
+                    it[tmdbId] = show.tmdbId
+                    it[tvdbId] = show.tvdbId
+                    it[tvRageId] = show.tvRageId
+                    it[rating] = show.rating
+                    it[year] = show.year?.roundToInt()
+                    it[runTime] = show.runTime
+                    it[episode] = show.episode?.roundToInt()
+                    it[episodeNumberEnd] = show.episodeNumberEnd?.roundToInt()
+                    it[season] = show.season?.roundToInt()
+                    it[aired] = show.aired
+                    it[genre] = show.genre
+                    it[studio] = show.studio
+                    it[status] = show.status
+                    it[tag] = show.tag?.let(Json.Default::encodeToString)
+                    it[actors] = show.actors?.let(Json.Default::encodeToString)
+                    it[seriesImageId] = show.seriesImageId
+                    it[backdropImageId] = show.backdropImageId
+                    it[lastUpdated] = show.lastUpdated.toEpochMilliseconds()
                 }.insertedCount == 1
             }
 
@@ -357,10 +357,10 @@ sealed interface Database {
             newSuspendedTransaction(currentCoroutineContext(), conn) {
                 Images.upsert(Images.imageId) {
                     it[imageId] = imageInfo.imageId
-                    it[size] = imageInfo.fileInfo.size
-                    it[lastUpdated] = imageInfo.libraryData.lastUpdated.toEpochMilliseconds()
-                    it[libraryId] = imageInfo.libraryData.libraryId
-                    it[location] = imageInfo.fileInfo.location.let(Json.Default::encodeToString)
+                    it[size] = imageInfo.size
+                    it[lastUpdated] = imageInfo.lastUpdated.toEpochMilliseconds()
+                    it[libraryId] = imageInfo.libraryId
+                    it[location] = imageInfo.location.let(Json.Default::encodeToString)
                 }.insertedCount == 1
 
             }
@@ -462,10 +462,10 @@ sealed interface Database {
         override suspend fun upsertProgress(progress: UserProgress): Boolean =
             newSuspendedTransaction(currentCoroutineContext(), conn) {
                 Progression.upsert(Progression.mediaId) {
-                    it[mediaId] = progress.progress.id
-                    it[timestamp] = progress.progress.timestamp.toLong()
+                    it[mediaId] = progress.id
+                    it[timestamp] = progress.timestamp.toLong()
                     it[username] = progress.username
-                    it[percent] = progress.progress.percent
+                    it[percent] = progress.percent
                 }.insertedCount == 1
             }
 
@@ -626,50 +626,43 @@ sealed interface Database {
         }
 
         private fun ResultRow.toServerImageInfo() = ServerImageInfo(
-            fileInfo = FileInfo(
-                location = this[Images.location].let { Json.decodeFromString(it) },
-                size = this[Images.size],
-            ), libraryData = LibraryData(
-                libraryId = this[Images.libraryId],
-                lastUpdated = Instant.fromEpochMilliseconds(this[Images.lastUpdated]),
-            ), imageId = this[Images.imageId]
-
+            location = this[Images.location].let { Json.decodeFromString(it) },
+            size = this[Images.size],
+            libraryId = this[Images.libraryId],
+            lastUpdated = Instant.fromEpochMilliseconds(this[Images.lastUpdated]),
+            imageId = this[Images.imageId]
         )
 
         private fun ResultRow.toServerShowInfo() = ServerShowInfo(
-            showInfo = ShowInfo(
-                id = this[Shows.showId],
-                libraryId = this[Shows.libraryId],
-                title = this[Shows.title],
-                plot = this[Shows.plot],
-                outline = this[Shows.outline],
-                originalTitle = this[Shows.originalTitle],
-                premiered = this[Shows.premiered],
-                releaseDate = this[Shows.releaseDate],
-                endDate = this[Shows.endDate],
-                mpaa = this[Shows.mpaa],
-                imdbId = this[Shows.imdbId],
-                tmdbId = this[Shows.tmdbId],
-                tvdbId = this[Shows.tvdbId],
-                tvRageId = this[Shows.tvRageId],
-                rating = this[Shows.rating],
-                year = this[Shows.year]?.toDouble(),
-                runTime = this[Shows.runTime],
-                episode = this[Shows.episode]?.toDouble(),
-                episodeNumberEnd = this[Shows.episodeNumberEnd]?.toDouble(),
-                season = this[Shows.season]?.toDouble(),
-                aired = this[Shows.aired]?.toDouble(),
-                genre = this[Shows.genre],
-                studio = this[Shows.studio],
-                status = this[Shows.status],
-                tag = this[Shows.tag]?.let { Json.decodeFromString(it) },
-                actors = this[Shows.actors]?.let { Json.decodeFromString(it) },
-                seriesImageId = this[Shows.seriesImageId],
-                backdropImageId = this[Shows.backdropImageId]
-            ), libraryData = LibraryData(
-                libraryId = this[Shows.libraryId],
-                lastUpdated = Instant.fromEpochMilliseconds(this[Shows.lastUpdated]),
-            )
+            id = this[Shows.showId],
+            libraryId = this[Shows.libraryId],
+            title = this[Shows.title],
+            plot = this[Shows.plot],
+            outline = this[Shows.outline],
+            originalTitle = this[Shows.originalTitle],
+            premiered = this[Shows.premiered],
+            releaseDate = this[Shows.releaseDate],
+            endDate = this[Shows.endDate],
+            mpaa = this[Shows.mpaa],
+            imdbId = this[Shows.imdbId],
+            tmdbId = this[Shows.tmdbId],
+            tvdbId = this[Shows.tvdbId],
+            tvRageId = this[Shows.tvRageId],
+            rating = this[Shows.rating],
+            year = this[Shows.year]?.toDouble(),
+            runTime = this[Shows.runTime],
+            episode = this[Shows.episode]?.toDouble(),
+            episodeNumberEnd = this[Shows.episodeNumberEnd]?.toDouble(),
+            season = this[Shows.season]?.toDouble(),
+            aired = this[Shows.aired]?.toDouble(),
+            genre = this[Shows.genre],
+            studio = this[Shows.studio],
+            status = this[Shows.status],
+            tag = this[Shows.tag]?.let { Json.decodeFromString(it) },
+            actors = this[Shows.actors]?.let { Json.decodeFromString(it) },
+            seriesImageId = this[Shows.seriesImageId],
+            backdropImageId = this[Shows.backdropImageId],
+            lastUpdated = Instant.fromEpochMilliseconds(this[Shows.lastUpdated]),
         )
 
         private fun ResultRow.toServerSeasonInfo(): ServerSeasonInfo = ServerSeasonInfo(
@@ -736,11 +729,10 @@ private fun ResultRow.toLibraryIndex(): LibraryIndex = LibraryIndex(
 )
 
 private fun ResultRow.toProgress() = UserProgress(
-    progress = Progress(
-        id = this[Database.Progression.mediaId],
-        percent = this[Database.Progression.percent],
-        timestamp = this[Database.Progression.timestamp].toDouble()
-    ), username = this[Database.Progression.username]
+    id = this[Database.Progression.mediaId],
+    percent = this[Database.Progression.percent],
+    timestamp = this[Database.Progression.timestamp].toDouble(),
+    username = this[Database.Progression.username]
 )
 
 sealed interface ProgressSort {

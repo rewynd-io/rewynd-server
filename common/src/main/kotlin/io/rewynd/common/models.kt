@@ -242,8 +242,16 @@ data class ServerAudioTrack(
 @Serializable
 data class UserProgress(
     val username: String,
-    val progress: Progress
-)
+    val id: String,
+    val percent: Double,
+    val timestamp: Double
+) {
+    fun toProgress() = Progress(
+        id = id,
+        percent = percent,
+        timestamp = timestamp
+    )
+}
 
 @Serializable
 data class LibraryIndex(
@@ -253,7 +261,69 @@ data class LibraryIndex(
 )
 
 @Serializable
-data class ServerShowInfo(val showInfo: ShowInfo, val libraryData: LibraryData)
+data class ServerShowInfo(
+    val id: String,
+    val libraryId: String,
+    val title: String,
+    val plot: String? = null,
+    val outline: String? = null,
+    val originalTitle: String? = null,
+    val premiered: String? = null,
+    val releaseDate: String? = null,
+    val endDate: String? = null,
+    val mpaa: String? = null,
+    val imdbId: String? = null,
+    val tmdbId: String? = null,
+    val tvdbId: String? = null,
+    val tvRageId: String? = null,
+    val rating: Double? = null,
+    val year: Double? = null,
+    val runTime: Double? = null,
+    val episode: Double? = null,
+    val episodeNumberEnd: Double? = null,
+    val season: Double? = null,
+    val aired: Double? = null,
+    val genre: String? = null,
+    val studio: String? = null,
+    val status: String? = null,
+    val tag: List<String>? = null,
+    val actors: List<Actor>? = null,
+    val seriesImageId: String? = null,
+    val backdropImageId: String? = null,
+    val lastUpdated: SerializableInstant
+) {
+    fun toShowInfo() = ShowInfo(
+        id = id,
+        libraryId = libraryId,
+        title = title,
+        plot = plot,
+        outline = outline,
+        originalTitle = originalTitle,
+        premiered = premiered,
+        releaseDate = releaseDate,
+        endDate = endDate,
+        mpaa = mpaa,
+        imdbId = imdbId,
+        tmdbId = tmdbId,
+        tvdbId = tvdbId,
+        tvRageId = tvRageId,
+        rating = rating,
+        year = year,
+        runTime = runTime,
+        episode = episode,
+        episodeNumberEnd = episodeNumberEnd,
+        season = season,
+        aired = aired,
+        genre = genre,
+        studio = studio,
+        status = status,
+        tag = tag,
+        actors = actors,
+        seriesImageId = seriesImageId,
+        backdropImageId = backdropImageId
+
+    )
+}
 
 @Serializable
 data class ServerSeasonInfo(val seasonInfo: SeasonInfo, val libraryData: LibraryData)
@@ -337,10 +407,89 @@ data class ServerEpisodeInfo(
 }
 
 @Serializable
-data class ServerMovieInfo(val movieInfo: MovieInfo, val mediaInfo: ServerMediaInfo)
+data class ServerMovieInfo(
+    val id: String,
+    val libraryId: String,
+    val title: String,
+    val runTime: Double,
+    val plot: String? = null,
+    val outline: String? = null,
+    val director: String? = null,
+    val writer: List<String>? = null,
+    val credits: List<String>? = null,
+    val studios: List<String>? = null,
+    val rating: Double? = null,
+    val criticRating: Double? = null,
+    val mpaa: Double? = null,
+    val premiered: String? = null,
+    val tagLine: String? = null,
+    val country: String? = null,
+    val genre: String? = null,
+    val releaseDate: String? = null,
+    val year: Double? = null,
+    val episodeImageId: String? = null,
+    val lastUpdated: SerializableInstant = Clock.System.now(),
+    val fileInfo: FileInfo,
+    val videoTracks: Map<String, ServerVideoTrack>,
+    val audioTracks: Map<String, ServerAudioTrack>,
+    val subtitleTracks: Map<String, ServerSubtitleTrack>,
+    val subtitleFileTracks: Map<String, SubtitleFileTrack>,
+) {
+    fun toMovieInfo() = MovieInfo(
+        id = id,
+        libraryId = libraryId,
+        audioTracks = audioTracks.toAudioTracks(),
+        videoTracks = videoTracks.toVideoTracks(),
+        subtitleTracks = subtitleTracks.toSubtitleTracks() + subtitleFileTracks.mapValues { it.value.track }
+            .toSubtitleTracks(),
+        title = title,
+        runTime = runTime,
+        plot = plot,
+        outline = outline,
+        director = director,
+        writer = writer,
+        credits = credits,
+        rating = rating,
+        year = year,
+        episodeImageId = episodeImageId,
+        studios = studios,
+        criticRating = criticRating,
+        mpaa = mpaa,
+        premiered = premiered,
+        tagLine = tagLine,
+        country = country,
+        genre = genre,
+        releaseDate = releaseDate,
+    )
+
+    fun toServerMediaInfo(): ServerMediaInfo = ServerMediaInfo(
+        mediaInfo = MediaInfo(
+            id = id,
+            libraryId = libraryId,
+            audioTracks = audioTracks.toAudioTracks(),
+            videoTracks = videoTracks.toVideoTracks(),
+            subtitleTracks = subtitleTracks.toSubtitleTracks() + subtitleFileTracks.mapValues { it.value.track }
+                .toSubtitleTracks(),
+            runTime = runTime,
+        ),
+        libraryData = LibraryData(
+            libraryId = libraryId,
+            lastUpdated = lastUpdated,
+        ),
+        fileInfo = fileInfo, audioTracks = audioTracks,
+        videoTracks = videoTracks,
+        subtitleTracks = subtitleTracks + subtitleFileTracks.mapValues { it.value.track },
+        subtitleFiles = subtitleFileTracks.mapValues { it.value.location }
+    )
+}
 
 @Serializable
-data class ServerImageInfo(val fileInfo: FileInfo, val libraryData: LibraryData, val imageId: String)
+data class ServerImageInfo(
+    val location: FileLocation, val size: Long,
+    val libraryId: String,
+    val lastUpdated: SerializableInstant,
+    val imageId: String
+)
 
 @Serializable
 data class StreamProps(

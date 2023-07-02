@@ -19,7 +19,7 @@ fun Route.progressRoutes(db: Database) {
         call.parameters["id"]?.let { mediaId ->
             call.sessions.get<UserSession>()?.username?.let { username ->
                 call.respond(
-                    db.getProgress(mediaId, username)?.progress ?: Progress(
+                    db.getProgress(mediaId, username)?.toProgress() ?: Progress(
                         mediaId,
                         0.0,
                         Clock.System.now().toEpochMilliseconds().toDouble()
@@ -36,7 +36,7 @@ fun Route.progressRoutes(db: Database) {
                 cursor = req.cursor,
                 minPercent = req.minPercent ?: 0.0,
                 maxPercent = req.maxPercent ?: 1.0
-            ).map { it.progress }
+            ).map { it.toProgress() }
             call.respond(
                 ListProgressResponse(results = res) // TODO return a cursor
             )
@@ -45,7 +45,7 @@ fun Route.progressRoutes(db: Database) {
     post("/user/progress/put") {
         call.sessions.get<UserSession>()?.username?.let { username ->
             val req: Progress = call.receive()
-            db.upsertProgress(UserProgress(username, req))
+            db.upsertProgress(UserProgress(username, id = req.id, percent = req.percent, timestamp = req.timestamp))
             call.respond(HttpStatusCode.OK)
         }
     }

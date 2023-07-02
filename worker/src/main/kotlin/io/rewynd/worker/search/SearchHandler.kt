@@ -117,10 +117,10 @@ private fun ServerEpisodeInfo.toDocument() = Document().apply {
 }
 
 private fun ServerShowInfo.toDocument() = Document().apply {
-    identity(this@toDocument.showInfo.id)
-    add(StringField("title", this@toDocument.showInfo.title, Field.Store.YES))
-    add(StoredField("id", this@toDocument.showInfo.id))
-    add(StoredField("description", this@toDocument.showInfo.plot ?: this@toDocument.showInfo.outline ?: ""))
+    identity(this@toDocument.id)
+    add(StringField("title", this@toDocument.title, Field.Store.YES))
+    add(StoredField("id", this@toDocument.id))
+    add(StoredField("description", this@toDocument.plot ?: this@toDocument.outline ?: ""))
     add(StoredField("type", SearchResultType.show.name))
 }
 

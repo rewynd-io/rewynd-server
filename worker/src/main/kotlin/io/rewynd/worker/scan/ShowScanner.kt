@@ -10,7 +10,10 @@ import com.fasterxml.jackson.module.kotlin.KotlinModule
 import com.fasterxml.jackson.module.kotlin.readValue
 import io.rewynd.common.*
 import io.rewynd.common.database.Database
-import io.rewynd.model.*
+import io.rewynd.model.Actor
+import io.rewynd.model.Library
+import io.rewynd.model.SearchResultType
+import io.rewynd.model.SeasonInfo
 import io.rewynd.worker.ffprobe.FfprobeResult
 import io.rewynd.worker.serialize
 import kotlinx.coroutines.Dispatchers
@@ -137,39 +140,35 @@ class ShowScanner(private val lib: Library, private val db: Database) : Scanner 
         val backdropImage = showDir.findBackdropImage()
 
         val showInfo = ServerShowInfo(
-            showInfo = ShowInfo(
-                id = showId,
-                libraryId = lib.name,
-                title = nfo?.title ?: showDir.nameWithoutExtension,
-                plot = nfo?.plot,
-                outline = nfo?.outline,
-                originalTitle = nfo?.originaltitle,
-                premiered = nfo?.premiered,
-                releaseDate = nfo?.releasedate,
-                endDate = nfo?.enddate,
-                mpaa = nfo?.mpaa,
-                imdbId = nfo?.imdb_id,
-                tmdbId = nfo?.tmdbid,
-                tvdbId = nfo?.tvdbid,
-                tvRageId = nfo?.tvrageid,
-                rating = nfo?.rating?.toDouble(),
-                year = nfo?.year?.toDouble(),
-                runTime = nfo?.runTime?.toDouble(),
-                episode = null, // TODO wat?
-                episodeNumberEnd = null, // TODO wat?
-                season = null, // TODO wat?
-                aired = null,
-                genre = nfo?.genre,
-                studio = nfo?.studio,
-                status = nfo?.status,
-                tag = nfo?.tag,
-                actors = nfo?.actor,
-                seriesImageId = folderImage?.imageId,
-                backdropImageId = backdropImage?.imageId,
-            ), libraryData = LibraryData(
-                libraryId = lib.name,
-            )
-
+            id = showId,
+            libraryId = lib.name,
+            title = nfo?.title ?: showDir.nameWithoutExtension,
+            plot = nfo?.plot,
+            outline = nfo?.outline,
+            originalTitle = nfo?.originaltitle,
+            premiered = nfo?.premiered,
+            releaseDate = nfo?.releasedate,
+            endDate = nfo?.enddate,
+            mpaa = nfo?.mpaa,
+            imdbId = nfo?.imdb_id,
+            tmdbId = nfo?.tmdbid,
+            tvdbId = nfo?.tvdbid,
+            tvRageId = nfo?.tvrageid,
+            rating = nfo?.rating?.toDouble(),
+            year = nfo?.year?.toDouble(),
+            runTime = nfo?.runTime?.toDouble(),
+            episode = null, // TODO wat?
+            episodeNumberEnd = null, // TODO wat?
+            season = null, // TODO wat?
+            aired = null,
+            genre = nfo?.genre,
+            studio = nfo?.studio,
+            status = nfo?.status,
+            tag = nfo?.tag,
+            actors = nfo?.actor,
+            seriesImageId = folderImage?.imageId,
+            backdropImageId = backdropImage?.imageId,
+            lastUpdated = Clock.System.now()
         )
 
         return showDir.walk().maxDepth(1).filter {
@@ -192,10 +191,10 @@ class ShowScanner(private val lib: Library, private val db: Database) : Scanner 
         val seasonInfo = ServerSeasonInfo(
             seasonInfo = SeasonInfo(
                 id = seasonId,
-                showId = showInfo.showInfo.id,
+                showId = showInfo.id,
                 seasonNumber = (nfo?.seasonnumber ?: seasonDir.name.parseSeasonNumber() ?: 0).toDouble(),
                 libraryId = lib.name,
-                showName = showInfo.showInfo.title,
+                showName = showInfo.title,
                 year = nfo?.year?.toDouble(),
                 premiered = nfo?.premiered,
                 releaseDate = nfo?.releasedate,
@@ -237,9 +236,10 @@ class ShowScanner(private val lib: Library, private val db: Database) : Scanner 
             it.name.startsWith(episodeFile.nameWithoutExtension) && subtitleExtensions.contains(it.extension)
         }.associate { it.nameWithoutExtension to FileLocation.LocalFile(it.absolutePath) }
         val subtitleFileTracks = subtitleFiles.mapValues { entry ->
-            FfprobeResult.parseFile(Path(entry.value.path).toFile()).extractInfo().subtitleTracks.values.firstOrNull()?.let {
-                SubtitleFileTrack(entry.value, it)
-            }
+            FfprobeResult.parseFile(Path(entry.value.path).toFile()).extractInfo().subtitleTracks.values.firstOrNull()
+                ?.let {
+                    SubtitleFileTrack(entry.value, it)
+                }
         }.mapNotNull { it.value }
         val episodeImageFile = episodeFile.findEpisodeImage()
         val ffprobe = curr?.let {
@@ -264,7 +264,7 @@ class ShowScanner(private val lib: Library, private val db: Database) : Scanner 
                         audioTracks = ffprobe.audioTracks,
                         videoTracks = ffprobe.videoTracks,
                         subtitleTracks = ffprobe.subtitleTracks,
-                        showId = showInfo.showInfo.id,
+                        showId = showInfo.id,
                         seasonId = seasonInfo.seasonInfo.id,
                         title = nfo?.title ?: episodeFile.nameWithoutExtension,
                         runTime = ffprobe.runTime,
@@ -278,7 +278,7 @@ class ShowScanner(private val lib: Library, private val db: Database) : Scanner 
                         episode = nfo?.episode?.toDouble(),
                         episodeNumberEnd = nfo?.episodenumberend?.toDouble(),
                         season = seasonInfo.seasonInfo.seasonNumber,
-                        showName = showInfo.showInfo.title,
+                        showName = showInfo.title,
                         aired = null, //TODO nfo?.aired is and should be a string, not a double
                         episodeImageId = episodeImageFile?.imageId,
                         fileInfo = FileInfo(
@@ -384,12 +384,11 @@ class ShowScanner(private val lib: Library, private val db: Database) : Scanner 
             it.name.startsWith(this.nameWithoutExtension) && imageExtensions.contains(it.extension)
         }.firstOrNull())?.let {
             ServerImageInfo(
-                fileInfo = FileInfo(
-                    location = FileLocation.LocalFile(it.absolutePath),
-                    size = 0L,
-                ), libraryData = LibraryData(
-                    libraryId = this@ShowScanner.lib.name,
-                ), imageId = it.id()
+                location = FileLocation.LocalFile(it.absolutePath),
+                size = 0L,
+                libraryId = this@ShowScanner.lib.name,
+                imageId = it.id(),
+                lastUpdated = Clock.System.now()
             )
         }
 
@@ -398,12 +397,11 @@ class ShowScanner(private val lib: Library, private val db: Database) : Scanner 
         it.nameWithoutExtension == "folder" && imageExtensions.contains(it.extension)
     }.firstOrNull()?.let {
         ServerImageInfo(
-            fileInfo = FileInfo(
-                location = FileLocation.LocalFile(it.absolutePath),
-                size = 0L,
-            ), libraryData = LibraryData(
-                libraryId = this@ShowScanner.lib.name,
-            ), imageId = it.id()
+            location = FileLocation.LocalFile(it.absolutePath),
+            size = 0L,
+            libraryId = this@ShowScanner.lib.name,
+            imageId = it.id(),
+            lastUpdated = Clock.System.now()
         )
     }
 
@@ -411,12 +409,11 @@ class ShowScanner(private val lib: Library, private val db: Database) : Scanner 
         listOf("backdrop", "banner").contains(it.nameWithoutExtension) && imageExtensions.contains(it.extension)
     }.firstOrNull()?.let {
         ServerImageInfo(
-            fileInfo = FileInfo(
-                location = FileLocation.LocalFile(it.absolutePath),
-                size = 0L,
-            ), libraryData = LibraryData(
-                libraryId = this@ShowScanner.lib.name,
-            ), imageId = it.id()
+            location = FileLocation.LocalFile(it.absolutePath),
+            size = 0L,
+            libraryId = this@ShowScanner.lib.name,
+            imageId = it.id(),
+            lastUpdated = Clock.System.now()
         )
     }
 
@@ -643,10 +640,10 @@ private fun ServerEpisodeInfo.toDocument() = Document().apply {
 }
 
 private fun ServerShowInfo.toDocument() = Document().apply {
-    identity(this@toDocument.showInfo.id)
-    add(StringField("title", this@toDocument.showInfo.title, Field.Store.YES))
-    add(StoredField("id", this@toDocument.showInfo.id))
-    add(StoredField("description", this@toDocument.showInfo.plot ?: this@toDocument.showInfo.outline ?: ""))
+    identity(this@toDocument.id)
+    add(StringField("title", this@toDocument.title, Field.Store.YES))
+    add(StoredField("id", this@toDocument.id))
+    add(StoredField("description", this@toDocument.plot ?: this@toDocument.outline ?: ""))
     add(StoredField("type", SearchResultType.show.name))
 }
 
